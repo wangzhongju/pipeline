@@ -4,7 +4,7 @@ die-id: 0
 text:
   enable: true
   #fontfile for freetype
-  fontfile: /opt/demo/pipeline/dataset/font/SourceHanSansCN-Normal.ttf
+  fontfile: dataset/font/SourceHanSansCN-Normal.ttf
   #the color of the words
   pencolor: [0,255,0]
   #the height of the words

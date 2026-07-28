@@ -2,7 +2,7 @@ include_directories(
   ${CMAKE_HOME_DIRECTORY}/elements/ ${CMAKE_HOME_DIRECTORY}/core/include/
   ${CMAKE_HOME_DIRECTORY}/mocks/npu_sdk/include/)
 
-link_directories(${CMAKE_CURRENT_SOURCE_DIR}/build/lib/)
+link_directories(${CMAKE_BINARY_DIR}/lib/)
 
 add_executable(espl_launch pl_launch.cpp element_option_parser.cpp)
 add_dependencies(espl_launch es_plcore)

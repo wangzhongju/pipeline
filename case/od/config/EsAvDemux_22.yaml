@@ -1,5 +1,5 @@
 dump:
   enable: false
-file: /opt/demo/pipeline/video/girl_snapping.265
+file: video/girl_snapping.265
 outfps: 25
 totalframe: 0

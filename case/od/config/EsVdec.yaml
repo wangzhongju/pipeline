@@ -2,7 +2,7 @@
 input:
   #multi file as input data
   #file: /IBU_8T/IBU_SOFTWARE/test_soft/test_data/ESSDK/vdec/bvt/jpeg/300_100x100.jpg
-  file: /opt/demo/pipeline/resnet50_source/test_5.264
+  file: video/couple_walking_with_dogs.265
   #multi rtsp stream as input data
   #url: rtsp://10.10.130.209:8554/test.264
   type: h264

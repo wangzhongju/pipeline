@@ -1,0 +1,18 @@
+%YAML:1.0
+die-id: 0
+rows: 5
+columns: 6
+width: 3840
+height: 2160
+output-format: nv12
+stride-align: 1
+poolsize: 30
+dump: false
+text-pic-path: dataset/gridbg/0303_ari_100_2560_360.yuv
+text-pic-width: 2560
+text-pic-height: 360
+specialrect:
+  color: [255,255,0]
+  rectnum: 4
+  rowarray: [1,2,1,2]
+  colarray: [1,1,2,2]

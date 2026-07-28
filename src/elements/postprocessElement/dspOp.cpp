@@ -254,7 +254,7 @@ app_ret DspOp::classifyPostprocess(CInferOutputMeta *inferOutput, float softmaxS
 
     (*softmaxPerformance)->performanceStaticStart();
     app_debug(" %s \n", " ES_DSP_SOFTMAX start");
-    ret = ES_AK_DSP_Softmax((AK_DEVICE_E)m_dspID, softmaxInput, softmaxOutput, softmaxScale);
+    ret = ES_AK_DSP_Softmax((AK_DEVICE_E)m_dspID, &softmaxInput, &softmaxOutput, softmaxScale);
     (*softmaxPerformance)->performanceStaticEnd();
 
     if (0 != ret) {
@@ -356,7 +356,7 @@ app_ret DspOp::classifyPostprocess(CInferOutputMeta *inferOutput, float softmaxS
     uint64_t argmaxStartTime = (uint64_t)esclock();
 
     (*argmaxPerformance)->performanceStaticStart();
-    ret = ES_AK_DSP_Argmax((AK_DEVICE_E)m_dspID, argmaxInput, argmaxOutput, argmaxOutputIndex, argmaxK, 1);
+    ret = ES_AK_DSP_Argmax((AK_DEVICE_E)m_dspID, &argmaxInput, &argmaxOutput, &argmaxOutputIndex, argmaxK, 1);
     (*argmaxPerformance)->performanceStaticEnd();
     uint64_t argmaxEndTime = (uint64_t)esclock();
 
@@ -1384,8 +1384,8 @@ app_ret DspOp::detectionPostprocess(CInferOutputMeta *inferOutput, DetectionOutP
     ES_DETECTION_OUT_CFG stDspCfg = {0};
     prepareDspCFG(stDspCfg, detectionParams);
 
-    ret = ES_AK_DSP_DetectionOut((AK_DEVICE_E)m_dspID, detectionInputVec.data(), detectionInputVec.size(), output,
-                                 outputCount, (ES_DET_NETWORK_E)(detectionParams.detectionName), &stDspCfg);
+    ret = ES_AK_DSP_DetectionOut((AK_DEVICE_E)m_dspID, detectionInputVec.data(), detectionInputVec.size(), &output,
+                                 &outputCount, (ES_DET_NETWORK_E)(detectionParams.detectionName), &stDspCfg);
 #else
     ret = ES_AK_DSP_DetectionOut(detectionInputVec.data(), detectionInputVec.size(), output, outputCount,
                                  (ES_DET_NETWORK_E)(detectionParams.detectionName), detectionParams.anchorNum,

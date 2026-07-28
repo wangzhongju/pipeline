@@ -1,7 +1,10 @@
-#! /bin/sh
+#!/bin/sh
 
-export PATH=/opt/demo/pipeline/bin/:$PATH
-# export LD_LIBRARY_PATH=/lib/:/usr/lib/:/usr/local/lib:/lib/acc-kit/:/usr/lib/riscv64-linux-gnu/:$LD_LIBRARY_PATH
+case_path=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+pipeline_root=$(CDPATH= cd -- "$case_path/../.." && pwd)
+
+export PATH="$pipeline_root/bin:$PATH"
+export LD_LIBRARY_PATH="$pipeline_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export PERF_STATIC_FLAG=0
 export PL_LOG_LEVEL=4
 # export essdk_log_config_path=/etc/es_syslog.conf
@@ -18,10 +21,11 @@ ulimit -s 512000
 time=$(date "+%Y-%m-%d %H:%M:%S")
 echo "[PL_TIME_START: ]$time"
 
-case_path=/opt/demo/pipeline/case/od
-cloopnum=200000000
+cloopnum=${CLOOPNUM:-200000000}
 
-espl_launch perfstat_interval 10000000 config_path $case_path/config/ \
+cd "$pipeline_root" || exit 1
+
+espl_launch perfstat_interval 10000000 config_path "$case_path/config/" lib_path "$pipeline_root/lib/" \
 EsAvDemux -path EsAvDemux_2.yaml -loopnum $cloopnum - ! EsVdec -name decoder1 -path EsVdec.yaml - ! EsMux -name mux1 -timeout 40 -poolsize 16 - \
 EsAvDemux -path EsAvDemux_22.yaml -loopnum $cloopnum  - ! EsVdec -name decoder2 -path EsVdec.yaml - ! element -name mux1 - \
 EsAvDemux -path EsAvDemux_25.yaml -loopnum $cloopnum  - ! EsVdec -name decoder3 -path EsVdec.yaml - ! element -name mux1 - \
@@ -51,12 +55,10 @@ EsAvDemux -path EsAvDemux_2.yaml -loopnum $cloopnum  - ! EsVdec -name decoder25 
 ! EsPreProcess -name preproc1 -path EsPreProcess.yaml - \
 ! EsInfer -name infer1 -path EsInfer.yaml - \
 ! EsQueue -name queuepost1 -type 0 -deepth 5 - ! EsPostProcess -name post1 -path EsPostProcess.yaml - \
-! EsTracker -name tracker1 -path EsTracker.yaml - \
 ! EsOsd -name osd1 -path EsOsd.yaml - \
 ! EsQueue -name queuegrid1 -type 0 -deepth 5 - \
 ! EsVideoGrid -name videogrid1 -path EsVideoGrid.yaml - \
-! EsQueue -name queuevo1 -type 0 -deepth 5 - \
-! EsVideoSink -name vo1 -path EsVideoSink.yaml -
+! EsTestSink -name sink1 -
 
 time=$(date "+%Y-%m-%d %H:%M:%S")
 echo "[PL_TIME_START: ]$time"

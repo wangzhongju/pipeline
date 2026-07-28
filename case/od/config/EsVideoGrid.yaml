@@ -15,7 +15,7 @@ stride-align: 1
 #output buffer pool size
 poolsize: 30
 dump: false
-text-pic-path: /opt/demo/pipeline/dataset/gridbg/0303_ari_100_2560_360.yuv
+text-pic-path: dataset/gridbg/0303_ari_100_2560_360.yuv
 text-pic-width: 2560
 text-pic-height: 360
 specialrect:

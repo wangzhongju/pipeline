@@ -1,5 +1,5 @@
 dump:
   enable: false
-file: /opt/demo/pipeline/video/gezi.265
+file: video/gezi.265
 outfps: 25
 totalframe: 0
