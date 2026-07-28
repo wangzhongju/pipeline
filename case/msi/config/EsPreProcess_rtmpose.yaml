@@ -1,0 +1,60 @@
+%YAML:1.0
+die-id: 0
+#data is prepared for specified infer plugins
+target-infer-ids: [2]
+#object classes which would be selected and pre-processed for downstream infer plugins
+select-class-ids: [0]
+#frame skip interval, only the frames with index%(inteval +1) == 0 would be inferred, 0 means no frames skipped.
+interval: [1,1]
+#0=NCHW, 1=NHWC
+output-order: 0
+# 0=RGB, 1=RGBA, 2=ARGB, 3=BGR, 4=BGRA, 5=ABGR, 6=GRAY
+output-format: 3
+#batch_size: 1(N=1), output-width: 224(W=224), output-height: 224(H=224), output-format: RGB(C=3)
+output-shape: [1,3,256,192]
+#0=UINT8, 1=UINT16, 2=UINT32, 3=UINT64, 4=INT8, 5=INT16, 6=INT32, 7=INT64, 8=FP16, 9=FP32, 10=FP64
+data-type: 4
+poolsize: 200
+#channel select: 0: pp0, 1: pp1.
+# 2 infer  need use origin picture
+channel: 1
+
+maintain_aspect_ratio:
+  enable: false
+  keep-long-side: false
+  keep-dst-ratio: true
+  padding-value: [144,144,144]
+
+normalize:
+  enable: false
+  #0:MIN_MAX, 1:Z_SCORE
+  normalizationmode: 1
+  #MIN_MAX steps for 3 channels, 1 / (max - min)
+  maxminreciprocal: [0.00392157,0.00392157,0.00392157]
+  #min values for 3 channels
+  minvalue: [0.0,0.0,0.0]
+  #Z_SCORE steps for 3 channels, 1 / std
+  stdreciprocal: [57.375, 57.12, 58.395]
+  #mean values for 3 channels
+  meanvalue: [103.53, 116.285, 123.675]
+  bypassstepquantization: flase
+  # int8 
+  stepreciprocal: 48.78
+
+#next-infer is infer  follow pre infer
+next-infer:
+  enable: true
+  crop-enable: true
+  #scoreThreshold is person filter
+  scoreThreshold: 0.5
+  #object classes which would be selected and pre-processed for downstream infer plugins
+  #extendWidth  = 1.1 * origin width
+  extendWidth: 0.25
+  extendHeight: 0.25
+  filterWidth: 20
+  filterHeight: 20
+
+#if enable is true, crop rect is infer Bbox
+
+dump:
+  enable: false

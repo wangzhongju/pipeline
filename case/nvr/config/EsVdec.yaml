@@ -1,0 +1,27 @@
+%YAML:1.0
+input:
+  #multi file as input data
+  #file: /IBU_8T/IBU_SOFTWARE/test_soft/test_data/ESSDK/vdec/bvt/jpeg/300_100x100.jpg
+  file: /opt/demo/pipeline/resnet50_source/test_5.264
+  #multi rtsp stream as input data
+  #url: rtsp://10.10.130.209:8554/test.264
+  type: h264
+
+    
+param:
+  die-id: 0
+  align: 1
+  poolsize: 12
+  
+output:
+  #pp0 param
+  picture-0:
+    video-format: nv12
+    scale: [448,240]
+  #pp1 param
+  picture-1:
+    video-format: nv12
+
+#dump file for debug
+dump:
+  enable: false

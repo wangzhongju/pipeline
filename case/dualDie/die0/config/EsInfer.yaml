@@ -1,0 +1,7 @@
+################################################################################
+model-filepath: "/opt/demo/pipeline/models/yolov5s_git_1x3x416x416.model"
+unique-id: 1
+die-id: 0
+inferOutputPoolSize: 200
+dumpflag: 0
+isAsync: 1

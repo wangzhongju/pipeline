@@ -1,0 +1,24 @@
+%YAML:1.0
+#everyone will has items in this config file
+createInferInput:
+  enable: false
+  batchSize: 1
+  targetInferID: 1
+  inputData: "/root/ifmap.bin"
+  dims: [1, 416, 416, 3]
+
+createPostprocessInput:
+  enable: false
+  batchSize: 1
+  outputInferID: 1
+  #0-U8;1-U16;2-U32;3-U64;4-S8;5-S16;6-S32;7-S64;8-F16;9-F32;10-F64
+  datatype: 5
+  inputData: ["/root/ofmap_0.bin", "/root/ofmap_1.bin", "/root/ofmap_2.bin"]
+  #dims:[[n, h, w, c]]
+  dims: [[1, 52, 52, 255], [1, 26, 26, 255], [1, 13, 13, 255]]
+
+encodeInput:
+  enable: false
+  filepath: /root/test_10.yuv
+  width: 1280
+  height: 720

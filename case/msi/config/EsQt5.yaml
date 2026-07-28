@@ -1,0 +1,22 @@
+%YAML:1.0
+die-id: 0
+#0  for vdec pp0  , 1 for vdec pp1
+channel: 1
+#reder type:  0:   SDL2,   1 Vulkan,   2 OpenGL,  3  Direct3D12
+render-type: 1
+
+SDL2-render:
+  windows_title: ESWIN-Demo
+  DisplayWidth: 960
+  DisplayHeight: 540
+  #render driver :   0: software    1: opengles2
+  render-driver: opengles2
+
+
+QT5-Render: 
+  windows_title: EIC77xx-Demo-QT5
+  DisplayWidth: 960
+  DisplayHeight: 540
+  bOpenQt5DbgLog: false
+
+

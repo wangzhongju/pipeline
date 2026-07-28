@@ -1,0 +1,10 @@
+filesink:
+  # 输出文件前缀（最终文件名由实现自动补充后缀/序号等）
+  # 例如：video 模式 -> output_%sinkname%.h264；jpeg 模式 -> output_%sinkname%_00.jpeg...
+  fileprefix: output
+
+  # 输出类型（可选项，若实现支持）
+  # 0: video（所有包聚合为单一路径/文件，例如 h264）
+  # 1: jpeg（每个包单独一张图像文件）
+  # 注：当前代码未直接读取该键，若版本支持，请取消注释使用
+  # filetype: 0

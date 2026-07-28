@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=codec
+Comment=config video decoder source and encoder save path.
+Exec=python3 /opt/demo/pipeline/case/codec/ui/codec_config.py
+Icon=/opt/demo/pipeline/case/codec/ui/codec.png
+Terminal=true
+Type=Application
+Categories=Utility;Application;

@@ -1,0 +1,27 @@
+%YAML:1.0
+die-id: 0
+#text param for drawing
+text:
+  enable: true
+  #fontfile for freetype
+  fontfile: /opt/demo/pipeline/dataset/font/SourceHanSansCN-Normal.ttf
+  #the color of the words
+  pencolor: [0,255,0]
+  #the height of the words
+  fontheight: 0.03
+
+#rect param for drawing
+rect:
+  enable: true
+  #the color of the rects
+  pencolor: [255,0,0]
+  #the pen size of the rects
+  pensize: 4
+
+date:
+  enable: false
+
+stable:
+  enable: false
+  stabletext: Eswin
+  stablepos: [0.5,0.5]

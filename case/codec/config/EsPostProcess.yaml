@@ -1,0 +1,96 @@
+%YAML:1.0
+################################################################################
+postprocess-params:
+  #待使用的die 的id号,只有0和1
+  die-id: 0
+  #待使用的dsp的id号，可以选择0，1，2，3
+  dsp-id: 0
+  #模型类型，需要根据模型类型来判断后处理做哪些操作使用哪些参数；0-检测,1-分类
+  network-type: 0
+  #用于标识后处理插件对哪个推理ID的结果进行处理；
+  target-inferId: 1 
+  #0-dsp; 1-cpu;
+  optype: 1
+  softmaxScale: 0.188668
+
+
+##detector-params
+detector-params:
+  #检测模型的标签路径;
+  labelfile-path: "/opt/demo/pipeline/case/od/config/labels.txt"
+  #检测结果使用聚类的算法，0-DBSCAN, 1-NMS等，需根据实际情况判断;
+  cluster-mode: 0
+  #将检测结果中的这些类别挂载到batchMeta上，如果不设置，则挂载所有类别；
+  attach-class-ids: 0;1;2
+
+#检测模型的所有类别需要使用的参数
+class-attrs-all:
+  #检测结果的最大最小bbox的宽高条件；
+  detected-min-w: 10
+  detected-min-h: 20
+  detected-max-w: 600
+  detected-max-h: 700
+  #检测结果的DBSCAN算法使用的参数，该参数待定；
+  minBoxes: 3
+  #检测结果聚类阈值，待定；
+  pre-cluster-threshold: 0.2
+  post-cluster-threshold: 0.5
+  #聚类算法的阈值等，待定；
+  dbscan-min-score: 0.7
+  nms-iou-threshold: 0.1
+  topk: 1
+  #bbox的过滤条件等；
+  roi-top-offset: 200
+  roi-bottom-offset: 800
+  
+
+##某个类别使用自己独有配置参数选项；
+class-attrs-0:
+  topk: 2
+  nms-iou-threshold: 0.5
+  pre-cluster-threshold: 0.2
+
+#专为dsp算子detection_out配置的参数
+detection-params:
+  #模型名字: 1-yolov3; 2-yolov4; 3-yolov5; 4-yolov7; 5-yolov8; 6-yolo5face; 6-frcnn;
+  network-name: 3
+  #nms算法类别: 0-hard_nms; 1-soft_nms_gaussian; 2-soft_nms_linear;
+  nms-method: 0
+  #iou算法类别: 0-ES_IOU; 1-ES_GIOU; 2-ES_DIOU;
+  iou-method: 0
+  #模型的输入的图像的尺寸；the input img size: [w, h]
+  imgWH: [416, 416]
+  #模型能检测的物体类别数量；
+  classNum: 80
+  #特征图上每个锚点数量；
+  anchorNum: 3
+  #特征图锚点的Scale
+  anchorScale: [[10,13, 16,30, 33,23], [30,61, 62,45, 59,119], [116,90, 156,198, 373,326]]
+  #输入数据的量化参数;input scale
+  input-scale: [0.000723196,0.00054957,0.00058225]
+  #每张图像中单个类别的最大数量
+  maxbboxperclass: 100
+  #单张图像中最大bbox数量
+  maxbboxperimg: 200
+  #置信度阈值：
+  scoreThreshold: 0.1
+  #iou阈值
+  iouThreshold: 0.4
+  #"ES_SOFT_NMS_GAUSSIAN" 使用的 sigma 参数
+  softnmssigma: 0.6
+  #图像有效区域相对于 resize 后图像左边的相对偏移量[offsetX, offsetY]
+  imgOffset: [0, 0]
+
+
+#分类模型参数信息；
+classifier-params:
+  #分类阈值；
+  classifier-threshold: 0.5
+  #分类内容;
+  classifier-type: "carcolor"
+  labelfile-path: "/opt/demo/pipeline/labels.txt"
+
+#分割模型参数信息；
+segmentation-params:
+  segmentation-threshold: 0.5
+  segmentation-output-order: 0

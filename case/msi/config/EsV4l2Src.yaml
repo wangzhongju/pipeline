@@ -1,0 +1,13 @@
+%YAML:1.0
+devpath: /dev/video9
+memory_mode: dma
+# nv12,yuyv(yuy2)
+pixel_format: nv12 
+width: 640 
+height: 360 
+fps: 30
+buf_count: 10
+totalframe: 0
+
+dump:
+  enable: false 

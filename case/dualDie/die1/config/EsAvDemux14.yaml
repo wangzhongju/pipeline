@@ -1,0 +1,7 @@
+%YAML:1.0
+#multi file as input data
+file: /opt/demo/pipeline/video/Foreign-Streets-3.265
+outfps: 25
+totalframe: 0
+dump:
+  enable: false

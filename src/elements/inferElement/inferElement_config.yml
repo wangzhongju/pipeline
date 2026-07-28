@@ -1,0 +1,29 @@
+# [必填] 模型文件路径，例如："resnet50-sim.model"
+model-filepath: "resnet50-sim.model"
+
+# [可选] 元素实例 ID
+# - 类型：int
+# - 默认：1
+unique-id: 1
+
+# [可选] DIE/芯片 ID
+# - 类型：int
+# - 取值范围：0 或 1（非法值按 0 处理）
+# - 默认：0
+die-id: 0
+
+# [可选] 推理输出内存池大小
+# - 类型：int
+# - 约束：>= 1
+# - 默认：3
+inferOutputPoolSize: 3
+
+# [可选] 调试 dump 标志
+# - 类型：int（0 关闭，1 开启）
+# - 默认：0
+dumpflag: 0
+
+# [可选] 推理执行模式
+# - 类型：int/bool（1/true 表示异步，0/false 表示同步）
+# - 默认：1（异步）
+isAsync: 1

@@ -1,0 +1,22 @@
+# 视频采集设备路径，例如 /dev/video0
+devpath: /dev/video0
+
+# 像素格式：示例 nv12 或 yuyv(yuy2)
+pixel_format: yuyv
+
+# 采集分辨率
+width: 1280
+height: 720
+
+# 采集帧率（帧/秒）
+fps: 10
+
+# V4L2 环形缓冲队列个数
+buf_count: 10
+
+# 采集总帧数（可选；不配置则持续采集）
+# totalframe: 0
+
+# 调试 dump 开关
+dump:
+  enable: false

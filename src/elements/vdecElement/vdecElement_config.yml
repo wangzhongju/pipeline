@@ -1,0 +1,37 @@
+# 输入源（二选一，或都给由代码自行选择）
+input:
+  # 本地文件（示例）
+  file: /root/source/test_20frames.264
+  # RTSP/URL（示例）
+  url: rtsp://218.204.223.237:554/live/test1.264
+  # 码流类型：h264/h265/…
+  type: h264
+
+# 参数区
+param:
+  # 使用的DIE/芯片 ID（0/1），默认0
+  die-id: 0
+  # 对齐开关/模式（按项目定义，示例1）
+  align: 1
+  # 解码输出缓冲池大小
+  poolsize: 10
+
+# 输出参数（按需增加 picture-N）
+output:
+  # pp0 通道参数
+  picture-0:
+    # 输出视频像素格式：nv12/yuv420 等
+    video-format: nv12
+  # pp1 等可扩展
+  # picture-1:
+  #   video-format: nv12
+
+# 线程组数量（可选；源码支持 threadGroupCount）
+# 作用：并发/分片解码的线程组数量，影响吞吐
+# 不配置则使用代码默认
+# threadGroupCount: 1
+
+# 调试 dump
+dump:
+  # 是否启用 dump（输出中间结果到文件）
+  enable: false

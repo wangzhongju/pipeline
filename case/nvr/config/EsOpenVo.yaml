@@ -1,0 +1,25 @@
+%YAML:1.0
+die-id: 0
+#0  for vdec pp0  , 1 for vdec pp1
+channel: 1
+#now just support SDL2  QT5
+#reder type:  0:   SDL2,  1:  QT5  2 : Vulkan,   3 : OpenGL,  4 : Direct3D12
+render-type: 1
+
+
+SDL2-render:
+  windows_title: EIC77xx-Demo-SDL2
+  DisplayWidth: 960
+  DisplayHeight: 540
+  #render driver : opengles2
+  render-driver: opengles2
+
+QT5-Render: 
+  windows_title: EIC77xx-Demo-QT5
+  DisplayWidth: 960
+  DisplayHeight: 540
+  bOpenQt5DbgLog: false
+
+  
+
+

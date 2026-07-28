@@ -1,0 +1,63 @@
+# 编码器主配置
+die_id: 0  # 使用的die
+encoder:
+  # 输出码流类型：0=H265, 1=H264, 2=JPEG
+  format_out: 1
+
+  # H.26x 编码档位（profile），具体数值对应底层枚举
+  profile: 100
+
+  # GOP 模式（对应 VENC_GOP_MODE_E 枚举）
+  # 0: NORMALP, 1: DUALREF, 2: SMARTREF, 3: ADVSMARTREF, 4: BIPREDB, 5: LOWDELAYB
+  gop_mode: 0
+
+  # GOP 参数块（不同 gop_mode 下含义不同，对应结构体字段）
+  gop_para:
+    # B 帧数量（BIPREDB/LOWDELAYB 等模式使用）
+    BFrmNum: 0
+    # Smart/AdvSmart 模式：参考帧间隔
+    SPInterval: 0
+    # Smart/AdvSmart 模式：QP 调整
+    SPQpDelta: 0
+    # NormalP/其他：I/P 帧 QP 差值
+    IPQpDelta: 0
+    # Bg/AdvBg：背景帧间隔与 QP 差
+    BgInterval: 0
+    BgQpDelta: 0
+    # Vi：Vi QP 差
+    ViQpDelta: 0
+    # B 帧 QP 差
+    BQpDelta: 0
+
+  # 码率控制参数
+  rc:
+    # 码率模式（VENC_RC_MODE_E 枚举值），例如：
+    # 0:H264CBR 1:H264VBR 2:H264AVBR 3:H264QVBR 4:H264CVBR 5:H264FIXQP 6:H264QPMAP
+    # 7:H265CBR 8:H265VBR 9:H265AVBR 10:H265QVBR 11:H265CVBR 12:H265FIXQP 13:H265QPMAP
+    rc_mode: 1
+    # 目标帧率
+    frameRate: 25
+
+  # GOP 大小（不同 rc_mode 写入到对应结构的 GOP 字段）
+  gop: 50
+
+  # JPEG 编码质量（当 format_out=2 时使用）
+  jpegQFactor: 80
+
+  # 输入像素格式（字符串，将通过 convertPixelFmt 转换）
+  # 可选示例：nv12, nv21, yuv420p, rgb, bgra 等，需与底层实现一致
+  pixelFormat: nv12
+
+  # 目标码率（bps）
+  bitrate: 4000000
+
+  # 是否转储编码帧（调试）0/1
+  dumpframe: 0
+
+################################################################################
+# 文件输出（与源码读取一致）
+filesink:
+  # 输出文件名（路径）
+  filename: "D:/output/enc_output.h264"
+  # 是否转储打包数据（调试）0/1
+  dumppack: 0

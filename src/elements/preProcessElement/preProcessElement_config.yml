@@ -1,0 +1,69 @@
+# 使用的DIE/芯片 ID（0/1）
+die-id: 0
+
+# 预处理输出将发送给哪些 infer 插件（按推理ID）
+# 列表形式，示例 [1,3]
+target-infer-ids: [1]
+
+# 选择参与预处理的检测类别ID（不设置表示不过滤）
+select-class-ids: [0]
+
+# 帧间隔（与目标infer对应的列表）。仅 index % (interval+1) == 0 的帧参与
+# 0 表示不跳帧。例如两个目标infer可写 [3,1]
+interval: [0]
+
+# 输出张量维度顺序：0=NCHW, 1=NHWC
+output-order: 1
+
+# 输出像素格式：
+# 0=RGB, 1=RGBA, 2=ARGB, 3=BGR, 4=BGRA, 5=ABGR, 6=GRAY
+output-format: 3
+
+# 输出张量形状：[N, H, W, C] 或 [N, C, H, W]，需与 output-order/output-format 对齐
+# 例如：检测网络常用 [1,416,416,3]
+output-shape: [1,416,416,3]
+
+# 数据类型：
+# 0=UINT8, 1=UINT16, 2=UINT32, 3=UINT64, 4=INT8, 5=INT16, 6=INT32, 7=INT64, 8=FP16, 9=FP32, 10=FP64
+data-type: 4
+
+# 输出缓冲池大小（吞吐相关）
+poolsize: 200
+
+# 通道选择：0=pp0, 1=pp1
+channel: 0
+
+# 维持宽高比与补边
+maintain_aspect_ratio:
+  enable: true
+  # RGBA 顺序的补边颜色/填充值
+  padding-value: [0,144,144,144]
+
+# 归一化
+normalize:
+  enable: true
+  # 0=MIN_MAX, 1=Z_SCORE
+  normalizationmode: 1
+  # MIN_MAX: 1/(max-min)，按通道
+  maxminreciprocal: [0.00392157, 0.00392157, 0.00392157]
+  # MIN_MAX: 每通道最小值
+  minvalue: [0.0, 0.0, 0.0]
+  # Z_SCORE: 1/std，按通道
+  stdreciprocal: [1, 1, 1]
+  # Z_SCORE: 每通道均值
+  meanvalue: [0, 0, 0]
+  # 是否绕过量化步长（布尔）。样例里拼写为 flase，应为 false
+  bypassstepquantization: false
+  # INT8 量化步长的倒数（如 127）
+  stepreciprocal: 127
+
+# 裁剪：若 enable=true，按推理 BBox 裁剪
+crop:
+  enable: false
+
+# 指定下游的下一阶段推理（如需级联，选填）
+next-infer: []
+
+# 调试 dump
+dump:
+  enable: false

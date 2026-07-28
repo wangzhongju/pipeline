@@ -1,0 +1,32 @@
+%YAML:1.0
+# for preprocess
+
+encodeInput:
+  enable: true
+  filepath: /opt/demo/pipeline/dataset/highway_1920x1080_yuv420p_11frames.yuv 
+  width: 1920
+  height: 1080
+  # 0:pp1 1:pp1 2:batch
+  datatype: 2
+
+
+# for infer 
+createInferInput:
+  enable: false 
+  batchSize: 1
+  targetInferID: 1
+  inputData: "/opt/demo/pipeline/dataset/yolov5s_416x416_essimulator/ifmap.bin"
+  #dims:[[n, h, w, c]]
+  dims: [1, 416, 416,3]
+
+# for poseprocess
+createPostprocessInput:
+  enable: false 
+  batchSize: 1
+  outputInferID: 1
+  #0-U8;1-U16;2-U32;3-U64;4-S8;5-S16;6-S32;7-S64;8-F16;9-F32;10-F64
+  datatype: 4
+  inputData: ["/opt/demo/pipeline/dataset/yolov5s_416x416_essimulator/ofmap0.bin", "/opt/demo/pipeline/dataset/yolov5s_416x416_essimulator/ofmap1.bin", "/opt/demo/pipeline/dataset/yolov5s_416x416_essimulator/ofmap2.bin"]
+  dims: [[1, 52, 52, 255], [1, 26, 26, 255], [1, 13, 13, 255]]
+
+

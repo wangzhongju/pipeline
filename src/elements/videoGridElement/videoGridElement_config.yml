@@ -1,0 +1,41 @@
+################################################################################
+# 运行芯片/DIE 选择
+# 仅支持 0/1，超出范围按实现默认
+# 默认: 0
+die-id: 0
+
+# 输出内存池大小（帧数或块数），>=1
+poolsize: 1
+
+# 网格布局：行、列数量
+rows: 2
+columns: 2
+
+# 合成画面宽高（像素）
+width: 1920
+height: 1080
+
+# 步距对齐（字节），例如 NV12 的 stride 会按该对齐计算
+stride-align: 1
+
+# 输出像素格式：可选 nv12 | rgb | bgra
+output-format: nv12
+
+# 叠加文本图片（必须存在且尺寸>0，否则断言失败）
+text-pic-height: 48
+text-pic-width: 256
+text-pic-path: "D:/assets/overlay/text.png"
+
+# 启用调试转储（布尔/0或1）
+dump: 0
+
+# 特殊高亮网格区域设置（可选）
+# color: RGB 颜色；rectnum: 特殊区域个数；rowarray/colarray: 指定每个区域的行列索引
+specialrect:
+  color: [255, 0, 0]
+  rectnum: 0
+  rowarray: []
+  colarray: []
+
+# 绑定的通道 ID（用于下游元素的通道选择）
+channel: 0

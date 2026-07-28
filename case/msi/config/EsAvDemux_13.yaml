@@ -1,0 +1,5 @@
+dump:
+  enable: false
+file: /opt/demo/pipeline/video/high-view.265
+outfps: 25
+totalframe: 0

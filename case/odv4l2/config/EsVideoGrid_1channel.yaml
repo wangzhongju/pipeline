@@ -1,0 +1,28 @@
+%YAML:1.0
+die-id: 0 
+#Number of rows in the grid output
+rows: 1
+#Number columns rows in the grid output
+columns: 1
+#Width of the output picture
+width: 3840
+#Height of the output picture
+height: 2160
+#Format of the output picture
+output-format: nv12
+#stride align of the output picture
+stride-align: 1 
+#output buffer pool size
+poolsize: 30
+dump: false
+text-pic-path: /opt/demo/pipeline/dataset/gridbg/0303_ari_100_2560_360.yuv
+text-pic-width: 2560
+text-pic-height: 360
+specialrect:
+  color: [255,255,0]
+  rectnum: 4
+  rowarray: [0,1,0,1]
+  colarray: [0,1,0,1]
+
+
+#####0

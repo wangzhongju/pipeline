@@ -1,0 +1,55 @@
+postprocess-params:
+  # 使用的 DIE/芯片 ID，仅支持 0 或 1
+  die-id: 0
+  # 使用的 DSP ID，可选 0/1/2/3
+  dsp-id: 3
+  # 模型类型：0=检测(detector), 1=分类(classifier)
+  network-type: 0
+  # 处理的推理结果来源（对应 infer 插件的 unique-id）
+  target-inferId: 1
+  # 执行后处理的处理器：0=DSP, 1=CPU
+  optype: 1
+  # softmax 缩放（若分类网络需要），示例值
+  softmaxScale: 0.188668
+
+# 检测模型的后处理参数
+## detector-params
+# 仅当 network-type=0（检测）时生效
+# 注：保持 attach-class-ids 为分号分隔的字符串形式，与现有模板一致
+
+detector-params:
+  # 标签文件路径（每行一个类别名称）
+  labelfile-path: "/opt/demo/pipeline/case/od/config/labels.txt"
+  # 聚类/抑制算法：0=DBSCAN, 1=NMS（根据实际实现选择）
+  cluster-mode: 0
+  # 仅将这些类别的检测结果挂载到 batchMeta（不配置则挂载全部）
+  # 分号分隔，例如：0;1;2
+  attach-class-ids: 0;1;2
+
+# 全部类别通用的检测结果过滤与聚类参数
+class-attrs-all:
+  # 检测框宽高的最小/最大限制（像素）
+  detected-min-w: 10
+  detected-min-h: 20
+  detected-max-w: 600
+  detected-max-h: 700
+  # DBSCAN 等聚类所需的最小框数
+  minBoxes: 3
+  # 聚类/过滤置信度阈值（预/后）（按实际算法解释）
+  pre-cluster-threshold: 0.2
+  post-cluster-threshold: 0.5
+  # DBSCAN 最小评分阈值
+  dbscan-min-score: 0.7
+  # NMS IOU 阈值
+  nms-iou-threshold: 0.1
+  # 每类别保留的最大目标数（Top-K）
+  topk: 1
+  # ROI 过滤：上下偏移（像素）。可用于忽略画面上下无效区域
+  roi-top-offset: 200
+  roi-bottom-offset: 800
+
+# 针对指定类别（如类别0）的个性化覆盖参数（优先级高于 class-attrs-all）
+class-attrs-0:
+  topk: 2
+  nms-iou-threshold: 0.5
+  pre-cluster-threshold: 0.2

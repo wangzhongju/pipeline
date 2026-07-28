@@ -1,0 +1,12 @@
+################################################################################
+#model-filepath: "/opt/demo/pipeline/models/yolov5s_mix_1x416x416x3_detection_first_level.model"
+#model-filepath: "/opt/demo/pipeline/models/model_test/b1_sram_4096_model/yolov5_relu_yolov5s_relu_416_cut_npu_b1.model"
+#model-filepath: "/opt/demo/pipeline/models/git_yolov5s_416_mix_1x3x416x416_dyn_npu_b1.model"
+#model-filepath:  "/opt/demo/pipeline/models/test_model_files/yolov5s_relu_416-sim_extract_npu_b1.model"
+#model-filepath:  "/opt/demo/pipeline/models/b1_srandefault_model/quantized_npu_b1.model"
+model-filepath: "/opt/demo/pipeline/models/rtmpose_npu_b1_latency.model"
+unique-id: 2
+die-id: 0
+inferOutputPoolSize: 200
+dumpflag: 0
+isAsync: 1

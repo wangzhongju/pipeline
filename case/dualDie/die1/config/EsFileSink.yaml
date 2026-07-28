@@ -1,0 +1,5 @@
+%YAML:1.0
+filesink:
+  # filetype: 0 	# 0:video(all package to one file), 1:jpeg(per package to one file)
+  fileprefix: output # default:output_%sinkname%.h264/.h264;output_%sinkname%_00.jpeg->output_%sinkname%_99.jpeg
+

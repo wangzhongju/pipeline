@@ -1,0 +1,5 @@
+dump:
+  enable: false
+file: /opt/demo/pipeline/video/ride-bicycle.265
+outfps: 25
+totalframe: 0

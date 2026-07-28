@@ -1,0 +1,48 @@
+%YAML:1.0
+#everyone will has items in this config file
+create_fake_image: false
+create_yuv_image: false
+create_osd_data: false
+create_preproc_data: false 
+create_yuv_stream: false
+create_shark_data: false
+create_different_Mem_Type_for_infer:
+  enable: false
+  memType: 0
+cameraInput:
+  enable: false
+gpuInput:
+  enable: false
+fakeInput:
+  enable: false
+2dInput:
+  enable: false
+inferInput:
+  enable: false
+  batchSize: 1
+  inputData: /home/e0005060/Downloads/win2030/win2030/buildroot/output/target/root/inferFile/ifmap.bin
+jpegDecoderInput:
+  enable: false
+postProcessInput:
+  enable: false
+encodeInput:
+  enable: true
+  filepath: /IBU_8T/IBU_SOFTWARE/e0005060/root/test_source/yolo_100_test.yuv
+  width: 1920
+  height: 1080
+  datatype: 0
+videoDecoderInput:
+  enable: false
+jpegEncoderInput:
+  enable: false
+  batchSize: 1
+  imgName: /elements/test_src/imgs/fisheye_420SP_1440x1440.yuv
+  format: NV12
+YuvStreamInput:
+  fps: 0
+  inputCounts: 90
+  batchSize: 1
+  width_out: 800
+  height_out: 480
+  inputFile: /elements/test_src/imgs/800x480_93.nv21
+  format: 2

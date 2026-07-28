@@ -1,0 +1,16 @@
+%YAML:1.0
+# 视频帧频
+fps: 20
+# 跟踪算法
+trackerPredictMethod: 0
+# 跟踪器初始化帧数
+initialTrackLen: 1
+l1GradientThresh: 0.0
+# 检测置信度阈值（阈值小于此值被tracker丢弃）
+checkDetScore: 0.0
+abandonThresh: 0.0
+initTrackAreaThresh: 0
+dump-flag: false
+dump-path: /tmp/essdkpl/tracker/
+prevDetectUsedMax: 3
+labelfilePath: "/opt/demo/pipeline/case/od/config/labels.txt"

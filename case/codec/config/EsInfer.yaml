@@ -1,0 +1,7 @@
+################################################################################
+model-filepath: "/opt/demo/pipeline/models/yolov5s_mix_1x416x416x3_detection_first_level.model"
+unique-id: 1
+die-id: 0
+inferOutputPoolSize: 200
+dumpflag: 0
+isAsync: 1

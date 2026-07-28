@@ -1,0 +1,51 @@
+%YAML:1.0
+die_id: 0		# 使用的die
+encoder:
+  dumpframe: 0
+  bitrate: 0
+  format_out: 2 	# 0:h265, 1:h264, 2:jpeg
+  profile: 0		# H.264: 0: baseline, 1: main, 2: high
+			# H.265: 0: MP, 1: Main 10.
+  gop_mode:	0 	# GOP mode. 0:NORMALP, 1:ONELTR, 2:BIPREDB, 3:LOWDELAYB, 4:SVC-T
+			# 1.NORMALP's QPOffset:[-10,30], QPFactor:[0.2,1.0] 
+			# 2.ONELTR's  QPOffset:[-10,30], QPFactor:[0.2,1.0], LTR Interval:[1, 65536]
+			# 3.BIPREDB's bFrmNum:[1, 7], b frame num during I and P or P and P  
+			# 4.LOWDELAYB's bFrmNum:[1, 4]
+			# 5.SVC_T's gopSize:[0, 8]
+  gop_para: 		# 与gop_mode一起使用，具体mode对应的参数
+    QPOffset: 10	
+    QPFactor: 0.5
+    interval: 10
+    BFrmNum: 4
+    gopSize: 7 
+    SPInterval: 0
+    SPQpDelta: 0
+    IPQpDelta: 0
+    BgInterval: 0
+    BgQpDelta: 0
+    ViQpDelta: 0
+    BQpDelta: 0
+  rc_mode: 1 	        # 码率配置, h264:[1, 7], mjpeg:[8, 10], h265:[11, 17]
+			# VENC_RC_MODE_H264CBR = 1,
+			# VENC_RC_MODE_H264VBR,
+			# VENC_RC_MODE_H264AVBR, 
+			# VENC_RC_MODE_H264QVBR,
+			# VENC_RC_MODE_H264CVBR,
+			# VENC_RC_MODE_H264FIXQP,
+			# VENC_RC_MODE_H264QPMAP,
+			# VENC_RC_MODE_MJPEGCBR = 8,
+			# VENC_RC_MODE_MJPEGVBR,
+			# VENC_RC_MODE_MJPEGFIXQP,
+			# VENC_RC_MODE_H265CBR = 11,
+			# VENC_RC_MODE_H265VBR,
+			# VENC_RC_MODE_H265AVBR,
+			# VENC_RC_MODE_H265QVBR,
+			# VENC_RC_MODE_H265CVBR,
+			# VENC_RC_MODE_H265FIXQP,
+			# VENC_RC_MODE_H265QPMAP, 
+  gop: 30		# GOP:[1, 65536]
+  jpegQFactor: 0        # 图片质量,[0, 10]，0→9 图片质量逐渐变好
+  pixelFormat: yuv420sp #yuv420sp:nv12,yvu420sp:nv21
+filesink:
+  dumppack: 1  
+  filename: output_chn%chnid%

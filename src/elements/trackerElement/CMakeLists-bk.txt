@@ -1,0 +1,63 @@
+find_package(OpenCV REQUIRED)
+include_directories(${OpenCV_INCLUDE_DIRS})
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "riscv64")
+  include_directories(
+    # ${CMAKE_HOME_DIRECTORY}/ ${CMAKE_HOME_DIRECTORY}/elements/
+    ${CMAKE_HOME_DIRECTORY}/../../../output/build/accelerator-kit-1.0/cv/cpu/es_tracker/include/ # es_tracker_api.h
+    ${CMAKE_HOME_DIRECTORY}/../../../output/build/ak_lib-1.0/include/common/ # es_ak_common.hpp
+    ${CMAKE_HOME_DIRECTORY}/../../../../package/accelerator-kit/nn/dsp/include/ # release .h
+  )
+
+else()
+  include_directories(
+    # ${CMAKE_HOME_DIRECTORY}/ ${CMAKE_HOME_DIRECTORY}/core/include
+    # ${CMAKE_HOME_DIRECTORY}/core/cjson
+    # /IBU_8T/IBU_SOFTWARE/e0004495/tracker_demo1226/include #tmp dir
+    # /IBU_8T/IBU_SOFTWARE/e0004495/es_tracker_0102/include # pub dir(before
+    # merge to 2030)
+    ${CMAKE_HOME_DIRECTORY}/../../middleware/ESSDK/AcceleratorKit/cv/cpu/es_tracker/include/
+    /IBU_8T/IBU_SOFTWARE/dsp_sdk_test/acc_kit/depend1219_test/include/ # es_nn_common.h
+  )
+
+endif()
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "riscv64")
+  link_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}/build/lib
+    ${DEPENDENCE_STAGING_PATH}/usr/lib/essdk/
+    ${CMAKE_HOME_DIRECTORY}/../../../output/build/ak_lib-1.0/internal/es_tracker/ # libes_tracker_api.so
+    ${CMAKE_HOME_DIRECTORY}/../../../../package/accelerator-kit/cv/cpu/lib/riscv/ # release
+                                                                                  # tracker so
+  )
+
+  # refer demos/CMakeLists.txt :ut_YOLO5FaceTrackerDemoApi part
+  add_library(es_pltracker SHARED trackerElement.cpp)
+  set_target_properties(es_pltracker PROPERTIES VERSION ${ESSDKPL_VERISION}
+                                                SOVERSION ${ESSDKPL_SOVERISION})
+  target_link_libraries(
+    es_pltracker es_tracker_api
+    # impl_EsTracker ${OpenCV_LIBS}
+    pthread es_plcore)
+else()
+  link_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}/build/lib
+    ${CMAKE_CURRENT_SOURCE_DIR}/out/lib
+    # /IBU_8T/IBU_SOFTWARE/e0004495/tracker_demo1226/lib #tmp dir
+    # /IBU_8T/IBU_SOFTWARE/e0004495/es_tracker_0102/build/impl_EsTracker/
+    # /IBU_8T/IBU_SOFTWARE/e0004495/es_tracker_0102/build/es_tracker_api/
+    ${CMAKE_HOME_DIRECTORY}/../../middleware/ESSDK/AcceleratorKit/build/cv/cpu/es_tracker/es_tracker_api/ # libes_tracker_api.so
+  )
+
+  # refer demos/CMakeLists.txt :ut_YOLO5FaceTrackerDemoApi part
+  add_library(es_pltracker SHARED trackerElement.cpp)
+  set_target_properties(es_pltracker PROPERTIES VERSION ${ESSDKPL_VERISION}
+                                                SOVERSION ${ESSDKPL_SOVERISION})
+  target_link_libraries(
+    es_pltracker es_tracker_api
+    # ${OpenCV_LIBS}
+    pthread es_plcore)
+
+endif()
+
+install(TARGETS es_pltracker LIBRARY DESTINATION ${ESSDKPL_LIB_INSTALL_PATH})

@@ -1,0 +1,85 @@
+# 基础设置
+# [可选] 初始化跟踪使用的起始帧数量
+# - 类型：int
+# - 默认：1
+initialTrackLen: 1
+
+# [可选] 视频帧率（用于内部时间/步进推断）
+# - 类型：int
+# - 默认：25（部分旧配置可能为 20）
+fps: 25
+
+# [可选] 跟踪预测方法
+# - 类型：int（枚举 EsTrackerPredictMethod，参考代码定义）
+# - 示例：0/1/2 ...，不同值对应不同算法
+# - 默认：代码实现未显式给出（请按需配置）
+trackerPredictMethod: 0
+
+# IOU 阈值
+# [可选] 常规 IOU 阈值
+# - 类型：float
+# - 默认：0.6
+normalIouThresh: 0.6
+
+# [可选] Kalman 预测 IOU 阈值
+# - 类型：float
+# - 默认：0.6
+kalmanIouThresh: 0.6
+
+# [可选] 光流（optical flow）匹配 IOU 阈值
+# - 类型：float
+# - 默认：0.9
+optiflowIouThresh: 0.9
+
+# 高级设置
+# [可选] 目标输出（emit）质量阈值，低于该值可能不输出
+# - 类型：int
+# - 默认：20
+emitQualityThresh: 20
+
+# [可选] 姿态衰减裁剪面积阈值（较大目标可能限制衰减）
+# - 类型：int
+# - 默认：10000
+orientationDecayClipAreaThresh: 10000
+
+# [可选] 关闭姿态偏移的比例阈值（小于该比例时不考虑偏移）
+# - 类型：float
+# - 默认：0.125
+disableOrientationOffsetRatio: 0.125
+
+# 阈值设置
+# [可选] L1 梯度阈值
+# - 类型：float
+# - 默认：0.0
+l1GradientThresh: 0.0
+
+# [可选] 检测置信度检查阈值（低于该分数可能丢弃）
+# - 类型：float
+# - 默认：0.0
+checkDetScore: 0.0
+
+# [可选] 放弃跟踪阈值（例如长时间未匹配时）
+# - 类型：float
+# - 默认：0.0
+abandonThresh: 0.0
+
+# [可选] 初始化跟踪的最小目标面积阈值
+# - 类型：int
+# - 默认：0
+initTrackAreaThresh: 0
+
+# [可选] 可回看使用的历史检测最大帧数
+# - 类型：int
+# - 默认：3
+prevDetectUsedMax: 3
+
+# 其他
+# [可选] 调试 dump 标志
+# - 类型：bool（true 开启，false 关闭）
+# - 默认：false
+dump-flag: false
+
+# [可选] 类别标签文件路径（如需对目标ID/名称做映射）
+# - 类型：string
+# - 默认：空字符串（不加载标签）
+labelfilePath: ""

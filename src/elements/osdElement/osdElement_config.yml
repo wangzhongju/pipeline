@@ -1,0 +1,45 @@
+# 使用的DIE/芯片 ID（0/1）
+die-id: 0
+
+# 文本绘制参数
+text:
+  enable: true
+  # freetype 字体文件路径
+  fontfile: /opt/demo/pipeline/dataset/font/SourceHanSansCN-Normal.ttf
+  # 文本颜色（BGR 或 RGB，依实现而定；保持与现有示例一致）
+  pencolor: [0, 255, 0]
+  # 字号相对画面高度的比例（0~1）或绝对像素，按实现解释
+  fontheight: 0.03
+
+# 矩形框绘制参数
+rect:
+  enable: true
+  # 框颜色
+  pencolor: [255, 0, 0]
+  # 线宽
+  pensize: 4
+
+# 日期时间叠加
+date:
+  enable: false
+
+# 稳定水印/文本
+stable:
+  enable: true
+  stabletext: Eswin
+  # 归一化坐标（0~1）表示位置，[x, y]
+  stablepos: [0.5, 0.5]
+
+# 姿态可视化（若启用姿态推理显示）
+rtmpose:
+  enable: false
+  # 具体子项视实现扩展（例如关键点颜色、骨架连线等）
+  # kpt-color: [0,255,255]
+  # line-color: [0,128,255]
+
+# 调试 dump
+dump:
+  # 输入帧 dump
+  inputenable: false
+  # 输出帧 dump
+  outputenable: false

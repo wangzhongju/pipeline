@@ -1,0 +1,112 @@
+################################################################################
+# 基础开关
+# 是否直接在本元素侧生成模拟的中间数据（分别对应不同下游环节）
+create_infer_data: false         # 生成用于 Infer 的模拟数据
+create_osd_data: false           # 生成用于 OSD/编码显示的数据
+create_preproc_data: false       # 生成用于 PreProcess 的模拟数据
+create_muxTest_data: false       # 生成用于 Mux 测试的数据
+
+################################################################################
+## 注意：编码输入 encodeInput 见下方统一配置块（供 create_osd_data 与通用编码输入共用），避免重复键
+
+################################################################################
+# 人脸选择数据（可选）
+faceSelectData:
+  enable: false
+  filepath: "D:/data/face/face_000.nv12"
+  width: 640
+  height: 480
+  datatype: 0
+
+################################################################################
+# 构造 Postprocess 输入（可选）
+createPostprocessInput:
+  enable: false
+  batchSize: 1
+  outputInferID: 1            # 目标 infer 的 unique-id
+  # 支持字符串或序列两种形式
+  inputData:
+    - "D:/data/post/out_tensor_0.bin"
+  # dims 为列表或列表的列表；代码按列表遍历，每项为 [n,h,w,c]
+  dims:
+    - [1, 80, 80, 3]
+  # 数据类型（枚举 int），将转换为 CDataType
+  datatype: 0
+
+################################################################################
+# 构造 Infer 输入（可选）
+createInferInput:
+  enable: false
+  # dims 以数组形式给出顺序 [n,h,w,c]
+  dims: [1, 224, 224, 3]
+  batchSize: 1
+  targetInferID: 1
+  inputData: "D:/data/infer/input_000.bin"
+
+################################################################################
+# 构造 Tracker 输入（可选）
+createTrackerInput:
+  enable: false
+  batch_size: 1
+  width: 1280
+  height: 720
+  inputFileData: "D:/data/tracker/frame_000.nv12"
+
+################################################################################
+# 其他测试开关
+createFaceselectFlag: false
+createFramerateFlag: false
+
+################################################################################
+# 编码输入配置（供 create_osd_data 与通用编码输入共同使用，受 enable 控制）
+# 当 enable=true 时需提供文件与尺寸
+encodeInput:
+  enable: false
+  filepath: "D:/data/encode/input_000.nv12"
+  width: 1920
+  height: 1080
+  datatype: 0
+
+################################################################################
+# 保存特征/中间数据
+saveDataInput:
+  enable: false
+  feature_shape: 512
+  source: "infer"          # 来源描述字符串
+
+################################################################################
+# 人脸比对输入
+compareFaceInput:
+  enable: false
+  batch_size: 1
+  width: 112
+  height: 112
+  inputFileData: "D:/data/compare/face_000.nv12"
+  featureShape: 512
+  inferBatchSize: 1
+
+################################################################################
+# VideoGrid 输入（将 NV12 图像送入 videoGridElement）
+videogridInput:
+  enable: false
+  filepath: "D:/data/grid/img_000.nv12"
+  width: 640
+  height: 360
+  datatype: 0
+
+################################################################################
+# 音频解码输入（示例）
+adecDataInput:
+  enable: false
+  source: "D:/data/audio/sample.aac"
+
+################################################################################
+# TTS 输入（结构与 compareFaceInput 类似）
+TTSInput:
+  enable: false
+  batch_size: 1
+  width: 112
+  height: 112
+  inputFileData: "D:/data/tts/tts_000.nv12"
+  featureShape: 512
+  inferBatchSize: 1

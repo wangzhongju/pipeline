@@ -1,0 +1,56 @@
+{
+  "model": {
+    "model_path":
+      "/yolov5s_416-sim_extract.onnx",
+    "save_path": "/home/yolov5/",
+    "batchsize": 1
+  },
+  "dataset": {
+    "data_root": "/img/",
+    "transform_cfgs": [
+      {
+        "type": "ToRGB"
+      },
+      {
+        "type": "LetterBox",
+        "new_shape": [416, 416]
+      },
+      {
+        "type": "Normalize",
+        "norm": true
+      },
+      {
+        "type": "ToCHW"
+      },
+      {
+        "type": "TransPrecision",
+        "precision": "float"
+      }
+    ]
+  },
+  "quant": {
+    "input": {
+      "format": {
+        "images": [1,3,416,416,1]
+      },
+      "color_format_convert": true,
+      "scale": {
+        "images": 0.007874015718698502
+      },
+      "data_type": 0
+    },
+    "output": {
+      "format": {
+        "326": [1,255,52,52,1],
+        "392": [1,255,26,26,1],
+        "458": [1,255,13,13,1]
+      },
+      "scale": {
+        "326": 0.1407417505979538,
+        "392": 0.12146474421024323,
+        "458": 0.11887762695550919
+      },
+      "data_type": 0
+    }
+  }
+}

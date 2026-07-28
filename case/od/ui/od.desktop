@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=object-detection
+Comment=config pipeline video source.
+Exec=python3 /opt/demo/pipeline/case/od/ui/video_source_congfig.py
+Icon=/opt/demo/pipeline/case/od/ui/od.png
+Terminal=true
+Type=Application
+Categories=Utility;Application;

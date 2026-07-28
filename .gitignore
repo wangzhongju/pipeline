@@ -1,0 +1,5 @@
+build/
+build-riscv64/
+package/debian/output/
+video/
+third_party/
