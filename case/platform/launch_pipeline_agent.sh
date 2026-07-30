@@ -2,6 +2,7 @@
 
 set -eu
 
+# Low-level launcher shared by real-platform and mock-platform entry points.
 case_path=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 pipeline_root=$(CDPATH= cd -- "$case_path/../.." && pwd)
 runtime_dir=${PIPELINE_AGENT_RUNTIME_DIR:-/tmp/pipeline-agent}

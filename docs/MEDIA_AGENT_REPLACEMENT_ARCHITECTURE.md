@@ -1,325 +1,511 @@
-# Pipeline Replacement Architecture
+# Media-Agent Replacement Architecture
 
-## 1. Goal
+## 1. Purpose
 
-Use the official EIC7700 `pipeline` implementation for RTSP ingest, hardware
-decode, preprocessing, inference and postprocessing. Migrate the required
-business capabilities into this repository:
+This document describes the current architecture of the EIC7700 Pipeline
+service that replaces `media-agent`.
 
-- platform task/configuration receive and ACK;
-- heartbeat and runtime health reporting;
+The implementation preserves the official hardware data path for RTSP ingest,
+decode, preprocessing, inference, and DSP postprocessing. Only the required
+platform-facing business capabilities are implemented in this repository:
+
+- platform configuration receive and ACK;
+- heartbeat and stream counts;
+- task start, stop, and model reload;
+- package decryption and runtime configuration generation;
 - tracking and event decisions;
-- alarm deduplication and alarm reporting;
-- alarm snapshot and video evidence lifecycle.
+- snapshot and video evidence;
+- alarm relay and platform reporting.
 
-The custom inference, decode, infer scheduler, publish buffer and SEI path from
-`media-agent` must not be linked into the new data plane.
+The replacement does not link to the `media-agent` source tree or import its
+decoder, inference scheduler, CPU postprocessor, or RTSP recorder.
 
-## 2. Target Process Model
+## 2. Deployment and Process Model
 
-The replacement is one deployable service with two internal planes:
+Platform mode deploys one executable:
 
 ```text
-                         platform local service
-                                  |
-                           protobuf over UDS
-                                  |
-                    +-------------v-------------+
-                    | PipelineAgent control     |
-                    | config/ACK/heartbeat      |
-                    +------+------+-------------+
-                           |      |
-                 RCU config|      |bounded alarm queue
-                           |      |
-  RTSP compressed packets  |      v
-       |                   |  AlarmDispatcher
-       v                   |      |
-  EsAvDemux ---> EsVdec ---> EsMux ---> Pre ---> Infer ---> Post
-       |                                              |
-       | encoded packet tap                           v
-       +-----------------------> EvidenceStore <--- EsEvent
-                                                         ^
-                                                     EsTrackerLite
+pipeline_agent
 ```
 
-`PipelineAgent` is the executable and lifecycle owner. Pipeline elements remain
-data-plane plugins. Network and disk I/O never run in an inference callback.
+The same executable has two roles:
 
-## 3. Modules
+```text
+pipeline_agent
+├── manager process
+│   ├── platform protobuf/UDS client
+│   ├── incremental desired-state store
+│   ├── worker reconciliation
+│   ├── heartbeat
+│   └── alarm forwarding
+└── pipeline_agent --worker
+    ├── one isolated stream/scenario/package execution unit
+    └── official Pipeline plugin graph
+```
 
-### 3.1 PipelineAgent
+The manager owns all child processes. A worker is started with `fork + exec`,
+and it is stopped with `SIGTERM`, a bounded wait, then `SIGKILL` only after the
+grace period expires.
 
-Owns the pipeline-local implementation migrated from these legacy modules:
+`espl_launch` remains available for legacy static cases but is not required by
+platform mode.
 
-- `src/ipc/IpcClient.*`;
-- `src/ipc/SocketSender.*`;
-- `src/protocol/MessageMapper.*`;
-- the config diff, heartbeat and alarm dedup business logic from
-  `src/pipeline/Pipeline.*`.
+## 3. High-Level Data Flow
 
-It does not own a decoder or inference implementation.
+```text
+smart-guard-edge
+       |
+       | framed protobuf over Unix stream socket
+       v
++--------------------------+
+| pipeline_agent manager   |
+| IpcClient / TaskManager  |
++-----+--------------------+
+      | fork/exec worker
+      v
++------------------------------------------------------------------+
+| EsAvDemux                                                       |
+|    | compressed packet                                           |
+|    +--> EsEvidenceRecorder --> per-stream GOP/record state        |
+|    |                                                             |
+|    v                                                             |
+| EsVdec -> EsMux -> EsQueue -> EsPreProcess -> EsInfer            |
+|                                      -> EsPostProcess(DSP)        |
+|                                      -> EsTrackerLite             |
+|                                      -> EsEvent -> EsTestSink     |
++------------------------------------------------+-----------------+
+                                                 |
+                                                 | AlarmInfo datagram
+                                                 v
+                                   manager AlarmRelayServer
+                                                 |
+                                                 v
+                                        platform send queue
+```
 
-Responsibilities:
+Display output is intentionally absent. `EsVideoSink` is not part of the
+platform graph, so a monitor or DRM output is not a runtime dependency.
 
-- receive `AgentConfig` and return an ACK;
-- validate stream IDs, URLs, model mappings and evidence directories;
-- publish immutable configuration generations to plugins;
-- create, stop or replace stream branches;
-- report total/success/failed stream counts;
-- accept alarm triggers from `EsEvent`;
-- wait for evidence results with a bounded timeout and report `AlarmInfo`;
-- persist unsent alarms to a small disk spool for retry.
+## 4. Platform Protocol
 
-The EIC7700 hardware pipeline must run as the unprivileged `ubuntu` user.
-The platform UDS must therefore grant that user write permission. Production
-deployment should create
-`/opt/smart-guard/run/media-agent/media_agent.sock` as `0660` with a shared
-service group (preferred), or apply an equivalent ACL after each socket
-creation. Running the complete pipeline as root is not a substitute because
-the vendor VPS initialization uses user-scoped IPC resources.
+The protocol is defined in:
 
-An initial configuration creates the graph. A transport change (`rtsp_url`,
-codec or enabled state) replaces only the affected input branch. Event
-threshold, ROI, alarm level, dedup interval and evidence duration are hot
-updates and must not restart decode or inference.
+```text
+src/business/proto/media-agent.proto
+```
 
-If the current pipeline core cannot safely remove a running element, generation
-1 may rebuild the whole graph on transport changes. The final implementation
-must add branch-scoped stop/remove before claiming zero-interruption hot update.
+Transport framing:
 
-### 3.2 EsTrackerLite
+```text
+4-byte magic 0xDEADBEEF
+4-byte big-endian protobuf length
+serialized Envelope
+```
 
-Input: `CBatchMeta` after `EsPostProcess`.
+Supported inbound messages:
 
-Output: the same `CBatchMeta`, with `CObjectMeta::trackerId`,
-`trackerBboxInfo` and `trackerConfidence` populated.
+- `MSG_CONFIG`: incremental task start, update, or stop;
+- `MSG_ALG_MODEL_UPDATE`: reload all or selected scenarios.
 
-Implementation:
+Supported outbound messages:
 
-- adapt `CObjectMeta` to `tracker_detection_t`;
-- use the self-contained ByteTrack source in `src/algorithm/tracker`;
-- keep one tracker handle per `streamId`;
-- process frames of the same stream serially;
-- reset state when a stream is disabled, reconnects or changes generation.
+- `MSG_ACK`;
+- `MSG_HEARTBEAT`;
+- `MSG_ALARM`.
 
-The existing official `EsTracker` reads image data and uses the legacy tracker
-API. It should not be enabled at the same time as `EsTrackerLite`.
+`SocketSender` reconnects to the platform socket and owns independent send and
+receive threads. Pipeline callbacks never write directly to the platform
+stream socket.
 
-### 3.3 EsEvent
+## 5. Incremental Desired State
 
-Input: tracked `CBatchMeta`.
+The platform normally sends one device task per configuration message. A
+message is therefore treated as an incremental update, not a complete global
+snapshot.
 
-Output: lightweight `AlarmTrigger` objects to a bounded non-blocking queue.
+The manager maintains:
 
-Implementation:
+```text
+active_streams: map<stream_id, StreamConfig>
+```
 
-- adapt `CObjectMeta` to `event_object_t`;
-- use the self-contained event engine in `src/algorithm/event`;
-- read a shared immutable `StreamRuntimeConfig`;
-- own one event handle/state set per stream;
-- perform ROI, threshold and temporal event decisions;
-- never create JPEG/video files and never send protobuf on the pipeline thread;
-- drop or coalesce duplicate queue entries when downstream is overloaded.
+Merge semantics:
 
-Tracking and event decision are separate plugins because they have different
-state reset rules and can be tested independently. They may share an adapter
-library for normalized boxes and stream identity.
+```text
+enabled=true  -> insert or replace this stream_id
+enabled=false -> erase this stream_id
+absent stream -> preserve its previous state
+```
 
-### 3.4 EvidenceStore
+Rapid updates are debounced:
 
-Evidence handling is an asynchronous service, not a synchronous inference
-plugin. It has two inputs:
+- apply after `config_debounce_ms` of inactivity; or
+- apply when `config_max_wait_ms` is reached.
 
-1. a compressed packet tap immediately after `EsAvDemux`;
-2. an alarm frame reference and `AlarmTrigger` from `EsEvent`.
+This prevents a burst of platform messages from repeatedly rebuilding worker
+state.
 
-Per stream it owns:
+## 6. Worker Identity and Reconciliation
 
-- a bounded encoded GOP ring;
-- active post-alarm recording sessions;
-- a bounded snapshot worker queue;
-- storage quotas and atomic temporary-file rename.
+The execution key is:
 
-No additional RTSP connection is allowed.
+```text
+stream_id | model_scenario_code | package_path
+```
 
-## 4. Media Strategy
+This key deliberately prevents cross-device algorithm aggregation. A device
+failure, task stop, URL update, or package update must not restart unrelated
+devices.
 
-### 4.1 Video clips
+For each desired worker, the manager also stores the serialized `StreamConfig`
+as a signature. Reconciliation follows these rules:
 
-Use the `media-agent::Recorder` design principle, but consume packets from
-`EsAvDemux`:
+1. stop workers whose keys are no longer desired;
+2. retain workers with an unchanged key, signature, and live PID;
+3. restart only workers whose configuration changed;
+4. start only new workers;
+5. reload only workers selected by a model-update message.
 
-- retain the latest complete GOP per stream;
-- on alarm, start from the cached keyframe;
-- append post-alarm packets until the requested duration;
-- remux without decoding or re-encoding;
-- write to a hidden temporary file, close the muxer, then atomically rename.
+A platform task contains one stream and may contain several algorithms. If the
+algorithms use different scenario/package pairs, the current implementation
+creates one isolated worker per pair. They are still controlled by the single
+manager process.
 
-Preferred container on this device is MPEG-TS for the write path:
+## 7. VDEC Group Allocation
 
-- no final MP4 index rewrite;
-- survives abrupt power loss better;
-- accepts H.264/H.265 Annex-B naturally;
-- low CPU and no VENC/VB load.
+Each worker receives a non-overlapping VDEC group range. Existing workers keep
+their offsets when another task starts or stops.
 
-If the platform requires MP4, remux the completed TS asynchronously or use
-fragmented MP4. Do not use `faststart` on the real-time path because it rewrites
-the file at close.
+The allocator scans the range `[0, 128)` and chooses the first available
+contiguous region. A region is returned when its worker exits.
 
-The packet metadata must preserve stream ID, keyframe flag, original PTS/DTS,
-duration and time base. The current foundational fields are in
-`core/include/video.h`. Before enqueueing, packet bytes must be copied or
-reference-counted because the FFmpeg `AVPacket` storage is invalid after the
-demux callback returns.
+Stable VDEC allocation is essential for:
 
-### 4.2 Alarm snapshots
+- branch-local task updates;
+- correlating `/proc/esmap/dec` with a worker;
+- preventing group collisions;
+- avoiding global decode restart.
 
-Do not reuse `media-agent::Snapshotter` as the primary EIC7700 path. It converts
-NV12 through `libswscale` and performs software MJPEG encoding, which adds CPU
-and memory bandwidth pressure.
+## 8. Package and Model Lifecycle
 
-Preferred path:
+`AlgorithmConfig.model_config_name` is an absolute package path.
 
-- retain the alarm `CFrameMeta`/VB block using reference counting;
-- submit only alarm frames to an on-demand hardware JPEG encoder worker;
-- optionally draw alarm boxes in a dedicated evidence surface;
-- release the VB reference immediately after JPEG completion;
-- fall back to software JPEG only when the hardware encoder is unavailable.
+Worker startup:
 
-Continuous `EsVenc` JPEG encoding is also rejected because it encodes every
-frame while only a tiny fraction are alarm evidence.
+1. decrypt and validate the package;
+2. extract package files into a worker-specific runtime directory;
+3. read the package root JSON;
+4. locate the package-declared `.model`;
+5. read preprocessing, classes, thresholds, and output scales;
+6. generate Pipeline YAML files;
+7. start the worker graph.
 
-## 5. Threading And Backpressure
+The package is the only source of model data. There is no board-side model
+fallback or hard-coded replacement.
 
-Pipeline callbacks have strict bounded work:
+An EIC7700 YOLOv8 detection package contains:
 
-- tracker and event processing run synchronously but perform no I/O;
-- packet tap copies into a bounded per-stream GOP ring;
-- alarm enqueue is non-blocking;
-- snapshot, mux close/rename, protobuf send and retry run on workers.
+- runtime JSON;
+- compiled `.model`;
+- `esquant/table.json`;
+- output order file;
+- package manifest.
 
-Required queue policies:
+The current DSP `ES_AK_DSP_DetectionOut` contract is:
 
-| Queue | Full policy |
+- exactly three NCHW outputs;
+- stride order 8, 16, and 32;
+- `64 + class_count` channels;
+- signed 16-bit output tensors;
+- one `int16_step` per output;
+- raw DFL box logits and class logits;
+- sigmoid performed by the DSP postprocessor.
+
+The old six-output box/class split is not supported by this graph.
+
+## 9. Generated Worker Configuration
+
+Each worker owns a directory under the manager runtime directory:
+
+```text
+<runtime>/<scenario>_<stable-id>/
+├── model/
+├── labels.txt
+├── agent-config.pb
+├── EsAvDemux_1.yaml
+├── EsVdec.yaml
+├── EsPreProcess.yaml
+├── EsInfer.yaml
+├── EsPostProcess.yaml
+├── EsTrackerLite.yaml
+└── EsEvent.yaml
+```
+
+The directory is removed and recreated only when that worker starts.
+
+Important mappings:
+
+| Platform/package field | Worker configuration |
 | --- | --- |
-| alarm triggers | coalesce same stream/scenario/track, then drop oldest |
-| snapshot requests | keep first and latest per alarm window |
-| encoded GOP ring | evict oldest complete GOP |
-| platform send queue | drop stale heartbeat first; persist alarms |
+| `rtsp_url`, `stream_id` | `EsAvDemux_*.yaml` |
+| model input size | VDEC scale and PreProcess output |
+| preprocess padding | PreProcess letterbox padding |
+| package `.model` | `EsInfer.yaml` |
+| class names | `labels.txt` |
+| threshold and output scales | `EsPostProcess.yaml` |
+| full stream algorithms | `agent-config.pb` |
+| snapshot/record directories | Evidence service configuration |
 
-Disk I/O errors disable evidence for that stream but must not block inference.
+The current preprocessing sampling interval is one inference frame for every
+three decoded frames.
 
-## 6. Stable Identity And Timestamps
+## 10. Worker Plugin Graph
 
-`streamId` is the business primary key. Element names and `padIndex` are runtime
-implementation details and must never be sent to the platform.
+For each stream/scenario/package execution unit:
 
-Each demuxed packet and decoded frame carries:
+```text
+EsAvDemux
+  -> EsEvidenceRecorder
+  -> EsVdec
+  -> EsMux
+  -> EsQueue
+  -> EsPreProcess
+  -> EsInfer
+  -> EsQueue
+  -> EsPostProcess
+  -> EsTrackerLite
+  -> EsEvent
+  -> EsTestSink
+```
 
-- `streamId`;
-- monotonically increasing frame/packet index;
-- media PTS;
-- wall-clock timestamp captured at ingest;
-- pipeline configuration generation.
+### 10.1 EsAvDemux
 
-Alarm, snapshot and recording requests use the same stream ID and generation.
-Results from an older generation are discarded after a stream restart.
+Pulls RTSP and attaches stable stream identity, keyframe state, and packet
+timing metadata.
 
-## 7. Configuration Mapping
+### 10.2 EsEvidenceRecorder
 
-Platform `AlgorithmConfig.model_scenario_code` is mapped to a local model
-profile. Multiple event scenarios may share one inference profile. Therefore:
+Receives compressed packets before decode and maintains recording state. It
+creates event clips without opening a second RTSP session and without
+re-encoding the video.
 
-- model loading is keyed by model profile/version, not event name;
-- event rules remain per stream and per scenario;
-- ROI, threshold, alarm level and schedule remain business configuration;
-- a model update creates a new profile generation, warms it, then switches.
+### 10.3 EsVdec, EsPreProcess, EsInfer, EsPostProcess
 
-Invalid model paths or unsupported scenarios produce a negative ACK with a
-specific reason. They must not terminate the running generation.
+Use the EIC7700 media, NPU, and DSP path. Preprocessing performs letterbox and
+normalization. Detection postprocessing uses the vendor DSP operator.
 
-## 8. Delivery Phases
+### 10.4 EsTrackerLite
 
-### Phase A: data contract and static graph
+Adapts postprocessed objects to the self-contained ByteTrack implementation.
+Tracker state is isolated by stream and worker lifetime.
 
-- propagate stable stream IDs and original packet timing;
-- add `EsTrackerLite` and `EsEvent`;
-- reuse platform protobuf IPC and asynchronous alarm dispatch;
-- run a statically declared multi-stream graph;
-- report alarms without evidence, then enable snapshots and TS clips.
+### 10.5 EsEvent
 
-Acceptance: same platform task and alarm protocol as `media-agent`; no
-additional RTSP sessions; pipeline throughput remains within 5% of the OD
-baseline.
+Applies threshold, ROI, scheduling, temporal, and dedup rules from the fixed
+worker configuration. It creates an `AlarmInfo` only after an event is
+triggered.
 
-### Phase B: runtime graph control
+### 10.6 EsTestSink
 
-- create `PipelineAgent` graph ownership;
-- apply runtime-only configuration without restart;
-- replace one stream branch on URL/codec changes;
-- add reconnect and branch health state.
+Terminates the service graph without display output.
 
-Acceptance: changing one stream does not interrupt other streams.
+## 11. Evidence Architecture
 
-### Phase C: production evidence and recovery
+### 11.1 Video
 
-- hardware JPEG snapshots;
-- GOP pre-record and post-record TS;
-- storage quota, temporary files and startup recovery;
-- durable alarm spool and retry;
-- process/service packaging.
+Video evidence uses compressed packets from `EsAvDemux`:
 
-Acceptance: power interruption leaves no visible partial evidence file and
-alarms are retried after reconnect.
+- preserve keyframe and timing metadata;
+- cache the required pre-event GOP window;
+- append post-event packets;
+- remux to MPEG-TS;
+- avoid decode and re-encode;
+- use per-stream recording state.
 
-## 9. Performance Gates
+This path minimizes CPU, NPU, VENC, and memory-bandwidth cost.
 
-Use the existing 26-channel one-hour baseline and compare:
+### 11.2 Snapshot
 
-- VDEC and NPU throughput must not regress by more than 5%;
-- no pipeline callback may block on socket or disk I/O;
-- alarm-disabled memory must remain flat after warmup;
-- encoded GOP cache has a configured hard byte limit;
-- all VB blocks return after stream stop;
-- queue depth, dropped/coalesced alarm count, evidence latency and IPC retry
-  count are observable;
-- run 26 channels for at least 8 hours after evidence is enabled because the
-  current one-hour test showed slow RSS growth that needs longer observation.
+The event element selects an original-resolution frame rather than the
+512x512 inference tensor. Detection coordinates are mapped back from
+letterbox space before evidence is generated.
 
-## 10. Non-Goals
+The current `EvidenceService` maps NV12 and uses FFmpeg software JPEG encoding
+on an evidence path. It does not encode every frame, but alarm bursts can still
+create CPU and memory-bandwidth spikes.
 
-- importing `media-agent` RTSP puller, decoder, infer scheduler or detector;
-- opening a second RTSP session for recording;
-- re-encoding alarm video;
-- doing filesystem or platform I/O inside `EsPostProcess`, tracker or event
-  callbacks;
-- treating a process-wide pipeline restart as the final hot-update design.
+An on-demand hardware JPEG worker remains a planned optimization.
 
-## 11. Current Implementation Status
+## 12. Alarm Path
 
-Phase A foundations implemented in this tree:
+```text
+EsEvent
+  -> build AlarmInfo
+  -> AlarmRelayClient (Unix datagram)
+  -> manager AlarmRelayServer
+  -> IpcClient bounded send queue
+  -> platform protobuf socket
+  -> platform persistence and publication
+```
 
-- `streamId`, keyframe and original packet timing propagation from
-  `EsAvDemux` through decoded frames;
-- `EsTrackerLite`, backed only by the ByteTrack C API;
-- `EsEvent`, backed only by eventEdge plus the existing protobuf/UDS platform
-  protocol;
-- platform configuration receive, ACK, heartbeat, event deduplication and
-  alarm enqueue;
-- optional activation from `od_pipeline_rtsp_stress.sh` with
-  `ENABLE_BUSINESS=1`;
-- RISC-V cross-build and install rules for the two plugins and their business
-  libraries.
+The local datagram separates worker lifetime from the manager's platform
+connection. A worker cannot write directly to the shared platform stream.
 
-The following items are intentionally not claimed as complete replacement yet:
+Evidence filenames are attached to `AlarmInfo` before it enters the relay.
 
-- platform-driven creation/removal of RTSP graph branches;
-- stream health-aware heartbeat counts;
-- model-update generation switching;
-- encoded GOP evidence tap and TS recorder;
-- on-demand hardware JPEG snapshot worker;
-- durable alarm spool and storage quota/recovery.
+## 13. Threading and Backpressure
 
-Until these items are implemented and tested on the board, Phase A is suitable
-for protocol/event integration tests, not final production replacement of
-`media-agent`.
+The control and data planes are separated:
+
+- platform receive thread parses and enqueues configuration;
+- manager loop reconciles desired state;
+- worker Pipeline threads execute media callbacks;
+- evidence work runs outside NPU/DSP callbacks where possible;
+- alarm relay uses a Unix datagram;
+- platform sending uses a bounded queue.
+
+No inference callback may block waiting for a platform reconnect.
+
+Current bounded resources:
+
+- platform send queue;
+- Pipeline queue depths;
+- VDEC, Mux, PreProcess, and Infer output pools;
+- per-worker process and VDEC group;
+- evidence packet/record state.
+
+## 14. MMZ and Pool Model
+
+MMZ/VB memory is not represented by worker RSS. Operational monitoring must
+use `/proc/eswin/vb`.
+
+Default pool settings:
+
+| Pool | Default |
+| --- | ---: |
+| VDEC | 2 |
+| Mux | 8 |
+| PreProcess | 12 |
+| Infer output | 8 |
+
+These are per worker. Increasing a value must be evaluated against the maximum
+task count.
+
+Resource lifecycle:
+
+1. manager starts a worker;
+2. worker creates media pools;
+3. worker receives `SIGTERM`;
+4. Pipeline elements stop and release VB blocks;
+5. manager waits for process exit;
+6. VDEC offset becomes reusable.
+
+Creating a replacement before the old worker exits can temporarily double
+MMZ usage and is intentionally avoided.
+
+## 15. Performance Model
+
+At 25 FPS input and preprocessing interval 3:
+
+```text
+VDEC rate per stream: approximately 25 FPS
+NPU input per stream: approximately 8.33 FPS
+13-stream nominal VDEC rate: 325 FPS
+13-stream nominal NPU input: 108.3 FPS
+```
+
+NPU and DSP use asynchronous submissions. Short `es_hw_watcher` samples and
+per-process `top` samples are expected to vary. Long-window counters are the
+correct throughput measurement.
+
+Production mode keeps worker logging low. Per-element performance output must
+be explicitly enabled for diagnostics.
+
+## 16. Failure Isolation
+
+The manager remains alive when a worker exits. It reaps the child and runs
+reconciliation again.
+
+Isolation guarantees currently provided:
+
+- one task update does not rewrite other active stream state;
+- one worker stop does not signal other workers;
+- VDEC groups do not overlap;
+- model extraction directories do not overlap;
+- tracker and event state do not cross workers;
+- platform reconnect does not stop inference workers.
+
+Failures still local to a worker include RTSP connection, package validation,
+model initialization, pool allocation, and plugin startup.
+
+## 17. Observability
+
+Manager log events:
+
+- platform connect/reconnect;
+- configuration receive and ACK;
+- incremental merge and active stream count;
+- worker start, stop, timeout, and exit;
+- desired/actual reconciliation;
+- model reload;
+- heartbeat and alarm send failures.
+
+System sources:
+
+- `/proc/eswin/vb`: MMZ/VB pools and free memory;
+- `/proc/esmap/dec`: VDEC cumulative counters;
+- `/opt/eswin/bin/es_hw_watcher`: VDEC/NPU/DSP utilization;
+- `pidstat`: long-window process CPU;
+- platform service journal: alarm receive, persist, and publish.
+
+## 18. Security and Filesystem Requirements
+
+The Pipeline service should run as the unprivileged board user.
+
+Required permissions:
+
+- platform UDS writable by the Pipeline user;
+- model package readable;
+- runtime directory writable;
+- snapshot and record directories writable;
+- Pipeline libraries and executable readable/executable.
+
+Running the whole process as root is not a replacement for correct socket and
+storage permissions.
+
+Decrypted models exist only in worker runtime directories and are deleted when
+that worker directory is recreated or the runtime tree is cleaned.
+
+## 19. Current Limitations
+
+- a changed task restarts its affected worker rather than hot-swapping a graph
+  branch in place;
+- multiple events on one stream may load separate model contexts;
+- snapshots currently use software JPEG;
+- alarm delivery has a bounded in-memory queue but no durable disk spool;
+- recording timestamps still depend on complete upstream PTS/DTS propagation;
+- storage quota and startup recovery require further production hardening;
+- heartbeat currently reports active desired streams as successful and does
+  not yet expose detailed per-worker health.
+
+## 20. Acceptance Tests
+
+Before production release:
+
+1. start and stop one task through the platform;
+2. add a second task without changing the first worker PID;
+3. stop and restore one task while other VDEC counters continue;
+4. run the maximum target channel count and monitor MMZ;
+5. stop all tasks and verify VB pool release;
+6. verify three-output S16 model ABI;
+7. verify original-resolution snapshot;
+8. verify playable event clip;
+9. verify alarm receive, persistence, and publication;
+10. verify platform socket reconnect;
+11. verify worker crash isolation;
+12. verify selected model reload;
+13. run long-duration RTSP stability testing;
+14. inspect all queues and logs for sustained backpressure.
+
+Operational commands and the local platform simulator are documented in
+`case/platform/run.md`.
