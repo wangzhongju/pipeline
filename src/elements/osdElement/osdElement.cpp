@@ -95,10 +95,14 @@ app_ret OsdElement::ProcessFrameMeta(CFrameMeta* frameMeta) {
     VIDEO_FRAME_S* videoFrame = &(img->mPic->videoFrame);
 
     if (mOsdParam.input_dump_enable) {
+#ifdef HAVE_ESPL_DX
         bool ret = mDbg->save_video_frame(img->mPic, mInputDumpFile.c_str());
         if (0 != ret) {
             app_error(" OSD save error 0x%x\n", ret);
         }
+#else
+        app_error("OSD input dump requested, but espl_dx support is unavailable\n");
+#endif
     }
 
     mOsdProc->prepareOsd(videoFrame, videoFrame->width, videoFrame->height);
@@ -350,7 +354,11 @@ app_ret OsdElement::ProcessFrameMeta(CFrameMeta* frameMeta) {
     mOsdProc->unprepareOsd(videoFrame);
 
     if (mOsdParam.output_dump_enable) {
+#ifdef HAVE_ESPL_DX
         mDbg->save_video_frame(img->mPic, mOutputDumpFile.c_str());
+#else
+        app_error("OSD output dump requested, but espl_dx support is unavailable\n");
+#endif
     }
 
     return APP_SUCCESS;

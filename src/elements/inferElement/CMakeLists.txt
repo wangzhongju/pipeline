@@ -1,6 +1,7 @@
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "riscv64")
   include_directories(
-    ${CMAKE_HOME_DIRECTORY}/../../../output/build/npu_runtime-1.0/eswin/host/runtime/include/
+    ${CMAKE_SYSROOT}/usr/include/
+    ${CMAKE_SYSROOT}/usr/include/essdk/
   )
 else()
   include_directories(

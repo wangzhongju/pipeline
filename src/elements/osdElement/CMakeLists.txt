@@ -47,7 +47,7 @@ elseif(WITHOSD_CPU)
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "riscv64")
     include_directories(
       ${DEPENDENCE_STAGING_PATH}/usr/include/freetype2/
-      ${DEPENDENCE_STAGING_PATH}/usr/include/harfbuzz/ /usr/include/harfbuzz)
+      ${DEPENDENCE_STAGING_PATH}/usr/include/harfbuzz/)
     link_directories(${DEPENDENCE_STAGING_PATH}/lib/
                      ${DEPENDENCE_STAGING_PATH}/usr/lib/)
   else()
@@ -58,7 +58,24 @@ elseif(WITHOSD_CPU)
                               ./common/esosd_cpu.cpp ./common/freetype.cpp)
   set_target_properties(es_plosd PROPERTIES VERSION ${ESSDKPL_VERISION}
                                             SOVERSION ${ESSDKPL_SOVERISION})
-  target_link_libraries(es_plosd es_plcore yaml-cpp freetype harfbuzz espl_dx)
+  target_link_libraries(es_plosd es_plcore yaml-cpp freetype harfbuzz)
+
+  set(ESPL_DX_ROOT "" CACHE PATH "Optional espl_dx installation root")
+  find_path(
+    ESPL_DX_INCLUDE_DIR
+    NAMES dx/dx.h
+    HINTS ${ESPL_DX_ROOT}/include)
+  find_library(
+    ESPL_DX_LIBRARY
+    NAMES espl_dx
+    HINTS ${ESPL_DX_ROOT}/lib)
+  if(ESPL_DX_INCLUDE_DIR AND ESPL_DX_LIBRARY)
+    target_compile_definitions(es_plosd PRIVATE HAVE_ESPL_DX)
+    target_include_directories(es_plosd PRIVATE ${ESPL_DX_INCLUDE_DIR})
+    target_link_libraries(es_plosd ${ESPL_DX_LIBRARY})
+  else()
+    message(STATUS "espl_dx not found; OSD frame dump support is disabled")
+  endif()
 endif()
 
 install(TARGETS es_plosd LIBRARY DESTINATION ${ESSDKPL_LIB_INSTALL_PATH}

@@ -5,7 +5,9 @@
 
 #include "./common/esosd.h"
 #include "batch_meta.h"
+#ifdef HAVE_ESPL_DX
 #include "dx/dx.h"
+#endif
 #include "element.h"
 #include "yaml_parser.h"
 
@@ -14,8 +16,10 @@ class OsdElement : public CElement {
     OsdElement(string name = "element", string config = "", int dieIndex = 0)
         : CElement(name.c_str(), config.c_str(), dieIndex) {
         mPerfType = SYNC_PERF_ELEMENT;
+#ifdef HAVE_ESPL_DX
         string dumpPath = mDumpBasePath + "/osd";
         mDbg = new dx::Debugger(dumpPath.c_str());
+#endif
         mInputDumpFile = name + "_" + "input.dx";
         mOutputDumpFile = name + "_" + "output.dx";
     };
@@ -46,7 +50,9 @@ class OsdElement : public CElement {
 
     time_t baseTime;
 
+#ifdef HAVE_ESPL_DX
     dx::Debugger* mDbg;
+#endif
     string mInputDumpFile;
     string mOutputDumpFile;
 

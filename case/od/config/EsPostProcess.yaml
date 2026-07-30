@@ -17,7 +17,7 @@ postprocess-params:
 ##detector-params
 detector-params:
   #检测模型的标签路径;
-  labelfile-path: "/opt/demo/pipeline/case/od/config/labels.txt"
+  labelfile-path: "case/od/config/labels.txt"
   #检测结果使用聚类的算法，0-DBSCAN, 1-NMS等，需根据实际情况判断;
   cluster-mode: 0
   #将检测结果中的这些类别挂载到batchMeta上，如果不设置，则挂载所有类别；
@@ -87,7 +87,7 @@ classifier-params:
   classifier-threshold: 0.5
   #分类内容;
   classifier-type: "carcolor"
-  labelfile-path: "/opt/demo/pipeline/labels.txt"
+  labelfile-path: "case/od/config/labels.txt"
 
 #分割模型参数信息；
 segmentation-params:
