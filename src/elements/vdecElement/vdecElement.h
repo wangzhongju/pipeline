@@ -54,6 +54,7 @@ class VdecElement : public CElement {
     FILE *dumpFp[ES_VDEC_OUT_CHN_NUM];
     int isIpc;
     int mPadIndex;
+    std::string mStreamId;
     MetaPool<CFrameMeta> *fmetaPool;
     MetaPool<CImageVd> *cimagePool;
     static int m_ThreadGroupCount;
@@ -67,5 +68,7 @@ class VdecElement : public CElement {
    public:
     static DEC_Client_S gDecClient;
     static bool gInitialized;
+    static bool gUsesAssignedOffset;
+    static std::mutex gLifecycleMutex;
 };
 #endif  //_VDEC_ELEMENT_H__

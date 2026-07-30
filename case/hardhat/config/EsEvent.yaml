@@ -1,0 +1,5 @@
+socket-path: /opt/smart-guard/run/media-agent/media_agent.sock
+agent-id: agent_001
+send-queue-size: 100
+heartbeat-interval-ms: 10000
+event-config: config/Event.yaml

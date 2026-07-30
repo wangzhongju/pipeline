@@ -49,6 +49,9 @@ add_subdirectory(
   ${CMAKE_CURRENT_SOURCE_DIR}/../vendor/zlog
   ${CMAKE_BINARY_DIR}/vendor/zlog)
 
+add_subdirectory(business)
+add_subdirectory(algorithm)
+
 include_directories(
   ${PIPELINE_SYSROOT_PREFIX}/usr/include/
   ${PIPELINE_SYSROOT_PREFIX}/usr/include/essdk
@@ -64,5 +67,7 @@ link_directories(
   ${CMAKE_BINARY_DIR}/lib)
 
 add_subdirectory(core)
+add_subdirectory(evidence)
 add_subdirectory(elements)
 add_subdirectory(pl_launch)
+add_subdirectory(agent)

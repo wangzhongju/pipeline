@@ -12,6 +12,7 @@
 
 typedef struct {
     char streamName[MAX_STREAM_NAME_LEN];
+    char streamId[MAX_STREAM_NAME_LEN];
     // video param
     PAYLOAD_TYPE_E videotype;
     ES_S32 width;

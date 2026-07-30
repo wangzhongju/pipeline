@@ -1,0 +1,44 @@
+// ─────────────────────────────────────────────────────────
+// types.proto  —  基础类型定义
+// ─────────────────────────────────────────────────────────
+
+syntax = "proto3";
+
+// ─────────────────────────────────────────────────────────
+// 归一化的矩形框（可旋转） [0,1]
+message Box {
+    float cx     = 1; // 中心 x
+    float cy     = 2; // 中心 y
+    float width  = 3;
+    float height = 4;
+    float angle  = 5; // 旋转角度（度）
+}
+
+// 归一化的点 [0,1]
+message Point2D {
+    float x = 1;
+    float y = 2;
+}
+
+// 多边形：points 按顺时针；首尾不必重复；至少 3 个点
+message Polygon {
+    repeated Point2D points = 1;
+}
+
+// ROI：支持多边形/矩形框
+message RoiArea {
+    bool enabled = 1; // 是否启用
+
+    // ROI 语义：INCLUDE=只在 ROI 内生效；EXCLUDE=ROI 内忽略（黑名单区域）
+    enum RoiMode {
+        ROI_MODE_UNKNOWN = 0;
+        ROI_INCLUDE      = 1;
+        ROI_EXCLUDE      = 2;
+    }
+    RoiMode mode = 2;
+
+    oneof shape {
+        Box         rect = 10; // 矩形/旋转矩形
+        Polygon     poly = 11; // 多边形
+    }
+}

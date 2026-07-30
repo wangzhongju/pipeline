@@ -1,0 +1,16 @@
+log:
+  level: info
+  output: file
+  log_dir: log
+  max_file_mb: 50
+  max_files: 5
+
+track:
+  enable: true
+  min_thresh: 0.5          # 最低置信度阈值
+  high_thresh: 0.7         # 高置信度阈值（车辆）
+  high_thresh_person: 0.8  # 行人高置信度阈值
+  high_thresh_motorbike: 0.8  # 非机动车高置信度阈值
+  max_iou_distance: 0.8    # IOU匹配阈值
+  max_age: 70              # 目标最大存活帧数
+  n_init: 3                # 确认前需要匹配的帧数

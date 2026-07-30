@@ -1,6 +1,7 @@
 #define PL_LOG_ID PL_LOG_VDEC
 #include "vdecElement.h"
 
+#include <cstdlib>
 #include <sys/prctl.h>
 #include <yaml-cpp/yaml.h>
 extern "C" {
@@ -11,7 +12,9 @@ extern "C" {
 }
 int VdecElement::m_ThreadGroupCount = -1;
 bool VdecElement::gInitialized = false;
+bool VdecElement::gUsesAssignedOffset = false;
 DEC_Client_S VdecElement::gDecClient = {0};
+std::mutex VdecElement::gLifecycleMutex;
 
 #define MAX_WIDTH 3840
 #define MAX_HEIGHT 2160
@@ -139,6 +142,7 @@ void otherGrpIdGetFrame(int grpId, ES_S32 &getCountNewGrpId) {
     fMeta->pool = pVdecElement->fmetaPool;
     fMeta->dieIndex = pVdecElement->m_dieIndex;
     fMeta->source = pVdecElement->mName;
+    fMeta->streamId = pVdecElement->mStreamId;
     for (ES_S32 i = 0; i < ES_VDEC_OUT_CHN_NUM; i++) {
         if (pClientVdecParam->outputChn[i]) {
             VIDEO_FRAME_INFO_S *frame = (VIDEO_FRAME_INFO_S *)malloc(sizeof(VIDEO_FRAME_INFO_S));
@@ -191,6 +195,7 @@ void releaseOtherGrpId(int newGrpID, ES_S32 &getCountNewGrpId) {
         CFrameMeta *fMeta = pVdecElement->fmetaPool->allocate();
         fMeta->pool = pVdecElement->fmetaPool;
         fMeta->source = pVdecElement->mName;
+        fMeta->streamId = pVdecElement->mStreamId;
         fMeta->padIndex = pVdecElement->mPadIndex;
         fMeta->dieIndex = pVdecElement->m_dieIndex;
         fMeta->eosFlag = true;
@@ -263,6 +268,7 @@ static ES_VOID *plStartGetFrame(void *pArgs) {
         fMeta->pool = pVdecElement->fmetaPool;
         fMeta->dieIndex = pVdecElement->m_dieIndex;
         fMeta->source = pVdecElement->mName;
+        fMeta->streamId = pVdecElement->mStreamId;
         for (ES_S32 i = 0; i < ES_VDEC_OUT_CHN_NUM; i++) {
             // send stream mode will take long time, increase waiting time to
             // avoid normal wait.
@@ -440,6 +446,7 @@ static ES_VOID *plStartGetFrame(void *pArgs) {
     CFrameMeta *fMeta = pVdecElement->fmetaPool->allocate();
     fMeta->pool = pVdecElement->fmetaPool;
     fMeta->source = pVdecElement->mName;
+    fMeta->streamId = pVdecElement->mStreamId;
     fMeta->padIndex = pVdecElement->mPadIndex;
     fMeta->dieIndex = pVdecElement->m_dieIndex;
     fMeta->eosFlag = true;
@@ -469,6 +476,7 @@ static ES_VOID *plStartGetFrame(void *pArgs) {
 }
 
 app_ret VdecElement::Init() {
+    std::lock_guard<std::mutex> lifecycleLock(gLifecycleMutex);
     if (m_NextElementVec.size() != 1) {
         return APP_FAILURE;
     }
@@ -502,6 +510,13 @@ app_ret VdecElement::Init() {
     // param
     YAML::Node param = config["param"];
     int die_id = param["die-id"].template as<int>();
+    if (die_id < 0 || die_id > 1) {
+        app_error("invalid VDEC die-id: %d\n", die_id);
+        return APP_FAILURE;
+    }
+    m_dieIndex = die_id;
+    m_VBName = die_id == 0 ? "mmz_nid_0_part_0" : "mmz_nid_1_part_0";
+    pMultiChn->nDieID = die_id;
     int align = param["align"].template as<int>();
     if (align > 0) {
         pMultiChn->align = align;
@@ -629,42 +644,81 @@ app_ret VdecElement::Init() {
 }
 
 app_ret VdecElement::Start() {
+    std::lock_guard<std::mutex> lifecycleLock(gLifecycleMutex);
     if (!gInitialized) {
         ES_BOOL mDecExisted = (gDecClient.groupNum > 0) ? ES_TRUE : ES_FALSE;
         ES_S32 ret = ES_SUCCESS;
         if (mDecExisted) {
-            /* update startGrpId. */
-            auto &sharedCounter = SharedCounter::sharedCounter();
-            if (sharedCounter.lockSharedMemory() == -1) {
-                app_error("VDEC Start get shared mem lock failed!\n");
-                return APP_FAILURE;
+            SharedCounter* sharedCounter = nullptr;
+            const char* assignedOffset =
+                std::getenv("PIPELINE_VDEC_GROUP_OFFSET");
+            if (assignedOffset != nullptr) {
+                char* end = nullptr;
+                const long value = std::strtol(assignedOffset, &end, 10);
+                if (end == assignedOffset || *end != '\0' || value < 0 ||
+                    value + gDecClient.groupNum > 128) {
+                    app_error("invalid PIPELINE_VDEC_GROUP_OFFSET: %s\n",
+                              assignedOffset);
+                    return APP_FAILURE;
+                }
+                grpIdOffset = static_cast<ES_S32>(value);
+                gUsesAssignedOffset = true;
+            } else {
+                sharedCounter = &SharedCounter::sharedCounter();
+                if (sharedCounter->lockSharedMemory() == -1) {
+                    app_error("VDEC Start get shared mem lock failed!\n");
+                    return APP_FAILURE;
+                }
+                grpIdOffset = sharedCounter->vdecCounterGet();
             }
+            gDecClient.grpIdOffset = grpIdOffset;
 
             try {
-                grpIdOffset = sharedCounter.vdecCounterGet();
-                gDecClient.grpIdOffset = grpIdOffset;
                 /* init module VB or user VB. */
                 ret = COMM_VDEC_InitVBPool(&gDecClient);
                 if (ret != ES_SUCCESS) {
-                    app_error("COMM_VDEC_InitVBPool failed!\n");
+                    fprintf(stderr,
+                            "[VDEC lifecycle] InitVBPool failed this=%p "
+                            "ret=0x%x groups=%u\n",
+                            this, ret, gDecClient.groupNum);
+                    app_error("COMM_VDEC_InitVBPool failed, this:%p ret:0x%x\n",
+                              this, ret);
+                    if (sharedCounter != nullptr) {
+                        sharedCounter->unlockSharedMemory();
+                    }
                     return APP_FAILURE;
                 }
                 /* start vdec. */
                 ret = COMM_VDEC_Start(&gDecClient);
                 if (ret != ES_SUCCESS) {
-                    app_error("COMM_VDEC_Start failed!\n");
+                    fprintf(stderr,
+                            "[VDEC lifecycle] COMM_VDEC_Start failed this=%p "
+                            "ret=0x%x groups=%u\n",
+                            this, ret, gDecClient.groupNum);
+                    app_error("COMM_VDEC_Start failed, this:%p ret:0x%x\n",
+                              this, ret);
+                    COMM_VDEC_ExitVBPool(&gDecClient);
+                    if (sharedCounter != nullptr) {
+                        sharedCounter->unlockSharedMemory();
+                    }
                     return APP_FAILURE;
                 }
 
-                for (int i = 0; i < gDecClient.groupNum; i++) {
-                    sharedCounter.vdecCounterIncrement();
+                if (sharedCounter != nullptr) {
+                    for (int i = 0; i < gDecClient.groupNum; i++) {
+                        sharedCounter->vdecCounterIncrement();
+                    }
                 }
             } catch (...) {
-                sharedCounter.unlockSharedMemory();
+                if (sharedCounter != nullptr) {
+                    sharedCounter->unlockSharedMemory();
+                }
                 app_error("VDEC elements try to start failed \n");
                 throw;
             }
-            sharedCounter.unlockSharedMemory();
+            if (sharedCounter != nullptr) {
+                sharedCounter->unlockSharedMemory();
+            }
         }
         gInitialized = true;
         gIpcDecCnt.totalVideoGrpCnt = gDecClient.groupNum;
@@ -753,6 +807,7 @@ app_ret VdecElement::ProcessData(CBaseMeta *baseMeta, CElement const *previousEl
     }
     isIpc = videoPacketMeta->isIpc;
     mPadIndex = videoPacketMeta->padIndex;
+    mStreamId = videoPacketMeta->streamId;
 
     ES_BOOL bEndOfStream = stream->bEndOfStream;
 SendAgain:
@@ -781,34 +836,37 @@ SendAgain:
 }
 
 app_ret VdecElement::Finish() {
+    std::lock_guard<std::mutex> lifecycleLock(gLifecycleMutex);
     if (gInitialized) {
         if (mDecExisted) {
-            auto &sharedCounter = SharedCounter::sharedCounter();
-            if (sharedCounter.lockSharedMemory() == -1) {
-                app_error("VDEC Start get shared mem lock failed!\n");
-                return APP_FAILURE;
+            SharedCounter* sharedCounter = nullptr;
+            if (!gUsesAssignedOffset) {
+                sharedCounter = &SharedCounter::sharedCounter();
+                if (sharedCounter->lockSharedMemory() == -1) {
+                    app_error("VDEC Finish get shared mem lock failed!\n");
+                    return APP_FAILURE;
+                }
             }
 
             for (ES_S32 i = 0; i < gDecClient.groupNum; i++) {
                 ES_S32 ret = ES_VDEC_DestroyGrp(i + grpIdOffset);
-                try {
-                    sharedCounter.vdecCounterDecrement();
-                } catch (...) {
-                    sharedCounter.unlockSharedMemory();
-                    app_error("VDEC elements try to start failed \n");
-                    throw;
+                if (sharedCounter != nullptr) {
+                    sharedCounter->vdecCounterDecrement();
                 }
                 if (ES_SUCCESS != ret) {
                     app_error("ES_VDEC_DestroyGrp failed!! ret: 0x%x \n", ret);
                 }
             }
-            sharedCounter.unlockSharedMemory();
+            if (sharedCounter != nullptr) {
+                sharedCounter->unlockSharedMemory();
+            }
             ES_VDEC_Deinit();
         }
         if (mDecExisted) {
             COMM_VDEC_ExitVBPool(&gDecClient);
         }
         gInitialized = false;
+        gUsesAssignedOffset = false;
     }
     delete getFramePerformance;
 

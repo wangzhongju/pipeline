@@ -1,0 +1,258 @@
+log:
+  level: info
+  output: file
+  log_dir: log
+  max_file_mb: 50
+  max_files: 5
+
+# 默认值按 `event_type` 进行合并，事件只需覆盖那些与其类型默认值不同的字段即可。
+event_type_defaults:
+  target_detection:
+    # 报警间隔
+    event_interval_ms: 5000
+    # 置信度
+    confidence_threshold: 0.5
+    # 低置信度容忍时长
+    confidence_grace_ms: 300
+    # 滑动窗口参数
+    target_required_time: 1.5
+    target_required_frame: 8
+    max_search_time: 3.0
+    # 区域
+    roi_areas: []
+
+event_detectors:
+  area-intrusion:
+    enabled: true
+    event_type: "target_detection"
+    # 检测标签列表
+    target_labels: ["person", "car"]
+    confidence_threshold: 0.9
+    # ROI 配置：同一事件内支持不同 ROI 使用不同区域级置信度。
+    roi_areas:
+      - enabled: true
+        mode: ROI_INCLUDE
+        confidence: 0.6
+        rect:
+          cx: 0.25
+          cy: 0.5
+          width: 0.5
+          height: 1.0
+          angle: 0.0
+      - enabled: true
+        mode: ROI_INCLUDE
+        confidence: 0.8
+        rect:
+          cx: 0.75
+          cy: 0.5
+          width: 0.5
+          height: 1.0
+          angle: 0.0
+    label_descriptions:
+      person:
+        english: "area-intrusion"
+        chinese: "人员闯入"
+      car:
+        english: "area-intrusion"
+        chinese: "车辆闯入"
+
+  fire-detection:
+    enabled: true
+    event_type: "target_detection"
+    target_labels: ["fire", "smoke"]
+    label_descriptions:
+      default:
+        english: "fire-detection"
+        chinese: "烟火检测"
+
+  climb-detection:
+    enabled: true
+    event_type: "target_detection"
+    target_labels: ["climb"]
+    label_descriptions:
+      default:
+        english: "climb-detection"
+        chinese: "攀爬检测"
+
+  garbage-overflow:
+    enabled: true
+    event_type: "target_detection"
+    target_labels: ["overflow", "garbage_bin"]
+    label_descriptions:
+      default:
+        english: "garbage-overflow"
+        chinese: "垃圾溢出"
+
+  hardhat-detection:
+    enabled: true
+    event_type: "target_detection"
+    event_interval_ms: 5000
+    confidence_threshold: 0.65
+    target_required_time: 1.5
+    target_required_frame: 8
+    max_search_time: 3.0
+    target_labels: ["head"]
+    label_descriptions:
+      head:
+        english: "hardhat-detection"
+        chinese: "未佩戴安全帽"
+
+  vest-detection:
+    enabled: true
+    event_type: "target_detection"
+    target_labels: ["vest"]
+    label_descriptions:
+      vest:
+        english: "vest-detection"
+        chinese: "反光衣检测"
+
+  mask-detection:
+    enabled: true
+    event_type: "target_detection"
+    target_labels: ["masked_face"]
+    label_descriptions:
+      masked_face:
+        english: "mask-detection"
+        chinese: "口罩检测"
+
+  smoking-detection:
+    enabled: true
+    event_type: "target_detection"
+    target_labels: ["smoking"]
+    label_descriptions:
+      smoking:
+        english: "smoking-detection"
+        chinese: "吸烟检测"
+
+  phone-detection:
+    enabled: true
+    event_type: "target_detection"
+    target_labels: ["phone"]
+    label_descriptions:
+      phone:
+        english: "phone-detection"
+        chinese: "打电话检测"
+
+  sleep-detection:
+    enabled: true
+    event_type: "target_detection"
+    target_labels: ["sleep"]
+    label_descriptions:
+      default:
+        english: "sleep-detection"
+        chinese: "睡岗检测"
+
+  people-leave:
+    enabled: true
+    event_type: "person_leave"
+    event_interval_ms: 30000
+    leave_time_threshold: 10.0
+    target_labels: ["person"]
+    confidence_threshold: 0.5
+    confidence_grace_ms: 300
+    roi_areas:
+      - enabled: true
+        mode: ROI_INCLUDE
+        confidence: 0.0
+        rect:
+          cx: 0.5
+          cy: 0.5
+          width: 0.4
+          height: 0.4
+          angle: 0.0
+    active_time_ranges:
+      - start_hour: 8
+        start_minute: 0
+        end_hour: 12
+        end_minute: 0
+      - start_hour: 14
+        start_minute: 0
+        end_hour: 18
+        end_minute: 0
+    label_descriptions:
+      person:
+        english: "people-leave"
+        chinese: "人员离岗"
+
+  crowd-gather:
+    enabled: true
+    event_type: "crowd_gather"
+    event_interval_ms: 5000
+    person_count_threshold: 5
+    duration_threshold: 3.0
+    target_labels: ["person"]
+    confidence_threshold: 0.5
+    confidence_grace_ms: 300
+    roi_areas: []
+    label_descriptions:
+      person:
+        english: "crowd-gather"
+        chinese: "人群聚集"
+
+  people-running:
+    enabled: true
+    event_type: "person_running"
+    event_interval_ms: 5000
+    body_height_speed_threshold: 2.0
+    duration_threshold: 1.0
+    target_labels: ["person"]
+    confidence_threshold: 0.5
+    confidence_grace_ms: 300
+    roi_areas: []
+    label_descriptions:
+      person:
+        english: "people-running"
+        chinese: "人员奔跑"
+
+  vehicle-reverse:
+    enabled: true
+    event_type: "vehicle_reverse"
+    event_interval_ms: 5000
+    target_labels: ["car", "truck", "bus"]
+    confidence_threshold: 0.5
+    normal_direction: "left_to_right"
+    reverse_threshold: 0.8
+    duration_threshold: 2.0
+    confidence_grace_ms: 300
+    roi_areas:
+      - enabled: true
+        mode: ROI_INCLUDE
+        confidence: 0.0
+        rect:
+          cx: 0.5
+          cy: 0.5
+          width: 1.0
+          height: 0.2
+          angle: 0.0
+    label_descriptions:
+      default:
+        english: "vehicle-reverse"
+        chinese: "车辆逆行"
+
+  vehicle-parking:
+    enabled: true
+    event_type: "vehicle_parking"
+    event_interval_ms: 5000
+    target_labels: ["car", "truck", "bus"]
+    parking_time_threshold: 8.0
+    confidence_threshold: 0.5
+    confidence_grace_ms: 300
+    roi_areas:
+      - enabled: true
+        mode: ROI_INCLUDE
+        confidence: 0.0
+        rect:
+          cx: 0.5
+          cy: 0.5
+          width: 0.8
+          height: 0.8
+          angle: 0.0
+    active_time_ranges:
+      - start_hour: 0
+        start_minute: 0
+        end_hour: 23
+        end_minute: 59
+    label_descriptions:
+      default:
+        english: "vehicle-parking"
+        chinese: "车辆违停"

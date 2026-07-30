@@ -398,6 +398,7 @@ static ES_VOID* plStartSendStream(ES_VOID* pArgs) {
                 CVideoPacketMeta* videoPacketMeta = pAvDemuxElement->vpacketPool->allocate();
                 videoPacketMeta->pool = pAvDemuxElement->vpacketPool;
                 videoPacketMeta->source = pAvDemuxElement->mName;
+                videoPacketMeta->streamId = pAvDemuxParam->streamId;
                 VDEC_STREAM_S* videoStream = (VDEC_STREAM_S*)malloc(sizeof(VDEC_STREAM_S));
                 memset(videoStream, 0, sizeof(VDEC_STREAM_S));
                 videoStream->bEndOfStream = ES_TRUE;
@@ -457,6 +458,7 @@ static ES_VOID* plStartSendStream(ES_VOID* pArgs) {
             CVideoPacketMeta* videoPacketMeta = pAvDemuxElement->vpacketPool->allocate();
             videoPacketMeta->pool = pAvDemuxElement->vpacketPool;
             videoPacketMeta->source = pAvDemuxElement->mName;
+            videoPacketMeta->streamId = pAvDemuxParam->streamId;
             VDEC_STREAM_S* videoStream = (VDEC_STREAM_S*)malloc(sizeof(VDEC_STREAM_S));
             memset(videoStream, 0, sizeof(VDEC_STREAM_S));
 
@@ -469,7 +471,14 @@ static ES_VOID* plStartSendStream(ES_VOID* pArgs) {
             videoPacketMeta->width = pAvDemuxParam->width;
             videoPacketMeta->height = pAvDemuxParam->height;
             videoPacketMeta->type = pAvDemuxParam->videotype;
+            videoPacketMeta->index = videoSendCount;
             videoPacketMeta->pts = videoStream->PTS;
+            videoPacketMeta->demuxPts = pkt->pts;
+            videoPacketMeta->demuxDts = pkt->dts;
+            videoPacketMeta->demuxDuration = pkt->duration;
+            videoPacketMeta->timeBaseNum = pFmtCtx->streams[videostreamidx]->time_base.num;
+            videoPacketMeta->timeBaseDen = pFmtCtx->streams[videostreamidx]->time_base.den;
+            videoPacketMeta->keyFrame = (pkt->flags & AV_PKT_FLAG_KEY) != 0;
             videoPacketMeta->videoPkt = videoStream;
             videoPacketMeta->padIndex = pAvDemuxElement->mPadIndex;
             // app_ret ret =
@@ -583,6 +592,10 @@ app_ret AvDemuxElement::Init() {
     } else {
         // todo
     }
+
+    const string streamId =
+        config["stream-id"].IsDefined() ? config["stream-id"].template as<string>() : mName;
+    snprintf(avDemuxParam.streamId, sizeof(avDemuxParam.streamId), "%s", streamId.c_str());
 
     if (config["outfps"].IsDefined()) {
         avDemuxParam.outfps = config["outfps"].template as<int>();

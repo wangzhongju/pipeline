@@ -130,6 +130,13 @@ class CVideoPacketMeta : public CBaseMeta {
     int isIpc = 0;
     int padIndex = 0;
     MetaPool<CVideoPacketMeta> *pool = nullptr;
+    string streamId;            // stable business stream id, independent of element names
+    int64_t demuxPts = 0;       // packet PTS in the original demuxer time base
+    int64_t demuxDts = 0;       // packet DTS in the original demuxer time base
+    int64_t demuxDuration = 0;  // packet duration in the original demuxer time base
+    int timeBaseNum = 0;
+    int timeBaseDen = 1;
+    bool keyFrame = false;
 
    private:
     CVideoPacketMeta(const CVideoPacketMeta &) = delete;
@@ -187,6 +194,7 @@ class CFrameMeta : public CBaseMeta {
                                     // index 0 for pp0(YUV),1 pp1(customed)
     vector<CObjectMeta *> objs;     // predict
     vector<CObjectMeta *> rtmObjs;  // predict
+    string streamId;                // stable business stream id propagated from the demuxer
    private:
     CFrameMeta(const CFrameMeta &) = delete;
     CFrameMeta &operator=(const CFrameMeta &) = delete;

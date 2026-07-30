@@ -1,0 +1,7 @@
+min-thresh: 0.1
+high-thresh: 0.5
+max-iou-distance: 0.7
+high-thresh-person: 0.5
+high-thresh-motorbike: 0.5
+max-age: 30
+n-init: 1

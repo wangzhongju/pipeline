@@ -166,7 +166,12 @@ app_ret CPipeLine::Start() {
     app_info(" %s \n", "Enter");
     for (auto element : mElements) {
         app_info(" element Start :%s\n", element->mName.c_str());
-        element->Start();
+        const app_ret ret = element->Start();
+        if (ret != APP_SUCCESS) {
+            app_error(" Start fail, the element is: %s ret: 0x%x\n",
+                      element->mName.c_str(), ret);
+            return ret;
+        }
         sem_post(&element->mStartFlag);
     }
     isAllElementStart = true;

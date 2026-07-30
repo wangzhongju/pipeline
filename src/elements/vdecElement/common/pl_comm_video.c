@@ -117,7 +117,17 @@ static ES_VOID getChnAttrs(const DEC_CHN_S *pChn, VDEC_GRP_ATTR_S *pGrpAttr) {
         if (!pChn->outputChn[i]) {
             continue;
         }
-        blkSize += PL_GetPicBufferSize(pChn->pixelFormat[i], pChn->width, pChn->height, pChn->align);
+        if (pChn->scaleParam[i].bEnable) {
+            blkSize += PL_GetPicBufferSize(
+                pChn->pixelFormat[i],
+                pChn->scaleParam[i].scaleWidth,
+                pChn->scaleParam[i].scaleHeight,
+                pChn->align);
+        } else {
+            blkSize += PL_GetPicBufferSize(
+                pChn->pixelFormat[i], pChn->width, pChn->height,
+                pChn->align);
+        }
     }
     if (PT_H264 == pChn->type || PT_H265 == pChn->type) {
         pGrpAttr->vdecVideoAttr.refFrameNum = pChn->refFrameNum;

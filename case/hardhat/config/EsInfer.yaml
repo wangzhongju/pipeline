@@ -1,0 +1,6 @@
+model-filepath: "models/260106_hardhat_cls2_512_b1_v1.model"
+unique-id: 1
+die-id: 0
+inferOutputPoolSize: 200
+dumpflag: 0
+isAsync: 1

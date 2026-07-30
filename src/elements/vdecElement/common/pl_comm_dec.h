@@ -36,6 +36,7 @@ extern "C" {
         ES_S32 ret;                                                                                                \
         ret = express;                                                                                             \
         if (ES_SUCCESS != ret) {                                                                                   \
+            fprintf(stderr, "%s chn %d failed at %s:%d with %#x\n", name, Chn, __FUNCTION__, __LINE__, ret);       \
             app_error("\033[0;31m%s chn %d failed at %s: LINE: %d with %#x!\033[0;39m\n", name, Chn, __FUNCTION__, \
                       __LINE__, ret);                                                                              \
             fflush(stdout);                                                                                        \
@@ -48,6 +49,7 @@ extern "C" {
         ES_S32 ret;                                                                                                    \
         ret = express;                                                                                                 \
         if (ES_SUCCESS != ret) {                                                                                       \
+            fprintf(stderr, "%s failed at %s:%d with %#x\n", name, __FUNCTION__, __LINE__, ret);                      \
             app_error("\033[0;31m%s failed at %s: LINE: %d with %#x!\033[0;39m\n", name, __FUNCTION__, __LINE__, ret); \
             return ret;                                                                                                \
         }                                                                                                              \

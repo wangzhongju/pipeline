@@ -202,6 +202,31 @@ int option_parser(int argc, char *argv[], CPipeLine *pipe) {
                 prev = avdemux;
                 linkFlag = false;
             }
+        } else if (!strcmp(argv[argcIndex], "EsEvidenceRecorder")) {
+            argcIndex++;
+            static int idx = 0;
+            ElementParam param;
+            param.name = "EsEvidenceRecorder" + to_string(idx++);
+            argcIndex = element_option_parser(argv, argcIndex, argc, &param);
+            numa_set_preferred(param.dieIndex);
+            auto create_func = PluginMgr::Inst().LoadPlugin<
+                CElement *(const char *, int)>(
+                "libes_plevidencerecorder.so", RTLD_NOW,
+                "createEsEvidenceRecorderElement");
+            if (create_func) {
+                CElement *recorder = nullptr;
+                std::thread([&pipe, &recorder, &create_func, &param]() {
+                    pipe->setDieAffinety(param.dieIndex);
+                    recorder = create_func(param.name.c_str(), param.dieIndex);
+                    gElementNameMap[param.name] = recorder;
+                    pipe->AddToPipeline(recorder, NULL);
+                }).join();
+                if (linkFlag && prev != nullptr) {
+                    pipe->LinkMany(prev, recorder, NULL);
+                }
+                prev = recorder;
+                linkFlag = false;
+            }
         } else if (!strcmp(argv[argcIndex], "EsVdec")) {
             argcIndex++;
             static int idx = 0;
@@ -776,6 +801,65 @@ int option_parser(int argc, char *argv[], CPipeLine *pipe) {
                 prev = EsTracker;
                 linkFlag = false;
             }
+        } else if (!strcmp(argv[argcIndex], "EsTrackerLite")) {
+            argcIndex++;
+            static int idx = 0;
+            ElementParam param;
+            param.name = "EsTrackerLite" + to_string(idx++);
+            argcIndex = element_option_parser(argv, argcIndex, argc, &param);
+            numa_set_preferred(param.dieIndex);
+            auto create_func = PluginMgr::Inst().LoadPlugin<
+                CElement *(const char *, const char *, int)>(
+                "libes_pltrackerlite.so", RTLD_NOW,
+                "createEsTrackerLiteElement");
+            if (create_func) {
+                CElement *EsTrackerLite = NULL;
+                std::thread([&pipe, &EsTrackerLite, &create_func, &param]() {
+                    pipe->setDieAffinety(param.dieIndex);
+                    EsTrackerLite = create_func(
+                        param.name.c_str(), param.path.c_str(), param.dieIndex);
+                    gElementNameMap[param.name] = EsTrackerLite;
+                    pipe->AddToPipeline(EsTrackerLite, NULL);
+                }).join();
+
+                if (linkFlag) {
+                    if (prev != NULL)
+                        pipe->LinkMany(prev, EsTrackerLite, NULL);
+                    else
+                        printf("%s prev cannot be NULL\n", param.name.c_str());
+                }
+                prev = EsTrackerLite;
+                linkFlag = false;
+            }
+        } else if (!strcmp(argv[argcIndex], "EsEvent")) {
+            argcIndex++;
+            static int idx = 0;
+            ElementParam param;
+            param.name = "EsEvent" + to_string(idx++);
+            argcIndex = element_option_parser(argv, argcIndex, argc, &param);
+            numa_set_preferred(param.dieIndex);
+            auto create_func = PluginMgr::Inst().LoadPlugin<
+                CElement *(const char *, const char *, int)>(
+                "libes_plevent.so", RTLD_NOW, "createEsEventElement");
+            if (create_func) {
+                CElement *EsEvent = NULL;
+                std::thread([&pipe, &EsEvent, &create_func, &param]() {
+                    pipe->setDieAffinety(param.dieIndex);
+                    EsEvent = create_func(
+                        param.name.c_str(), param.path.c_str(), param.dieIndex);
+                    gElementNameMap[param.name] = EsEvent;
+                    pipe->AddToPipeline(EsEvent, NULL);
+                }).join();
+
+                if (linkFlag) {
+                    if (prev != NULL)
+                        pipe->LinkMany(prev, EsEvent, NULL);
+                    else
+                        printf("%s prev cannot be NULL\n", param.name.c_str());
+                }
+                prev = EsEvent;
+                linkFlag = false;
+            }
         } else if (!strcmp(argv[argcIndex], "EsCompare")) {
             argcIndex++;
             static int idx = 0;
@@ -1096,7 +1180,7 @@ void release_globle_param() {
     gElementNameMap.erase(gElementNameMap.begin(), gElementNameMap.end());
 }
 
-int main(int argc, char *argv[]) {
+int pipelineWorkerMain(int argc, char *argv[]) {
     // fd_ = open("espl_launch.trace", O_RDWR|O_CREAT, 777);
     auto pipe = std::make_unique<CPipeLine>();
 #if 0
@@ -1117,7 +1201,12 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    pipe->Start();
+    if (pipe->Start() != APP_SUCCESS) {
+        std::cerr << " pipeline start failed !!!!" << std::endl;
+        pipe->notifyExit();
+        pipe->Finish();
+        return 1;
+    }
     std::cout << " will start WaitForFinish " << std::endl;
     pipe->WaitForFinish();
     std::cout << " will start Finish " << std::endl;

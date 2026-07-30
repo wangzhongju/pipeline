@@ -1,0 +1,18 @@
+%YAML:1.0
+input:
+  type: h264
+
+param:
+  die-id: 0
+  align: 1
+  poolsize: 12
+
+output:
+  picture-0:
+    video-format: nv12
+    scale: [512, 512]
+  picture-1:
+    video-format: nv12
+
+dump:
+  enable: false

@@ -1,0 +1,58 @@
+%YAML:1.0
+postprocess-params:
+  die-id: 0
+  dsp-id: 3
+  network-type: 0
+  target-inferId: 1
+  optype: 0
+  softmaxScale: 0.188668
+
+detector-params:
+  labelfile-path: "case/hardhat/config/labels.txt"
+  cluster-mode: 0
+  attach-class-ids: 0;1
+  Per_scoreThreshold: [0.65, 0.65]
+
+class-attrs-all:
+  detected-min-w: 5
+  detected-min-h: 5
+  detected-max-w: 512
+  detected-max-h: 512
+  minBoxes: 3
+  pre-cluster-threshold: 0.2
+  post-cluster-threshold: 0.5
+  dbscan-min-score: 0.7
+  nms-iou-threshold: 0.1
+  topk: 1
+  roi-top-offset: 0
+  roi-bottom-offset: 512
+
+class-attrs-0:
+  topk: 2
+  nms-iou-threshold: 0.5
+  pre-cluster-threshold: 0.2
+
+detection-params:
+  network-name: 5
+  nms-method: 0
+  iou-method: 0
+  imgWH: [512, 512]
+  classNum: 2
+  anchorNum: 3
+  anchorScale: [[10, 13, 16, 30, 33, 23], [30, 61, 62, 45, 59, 119], [116, 90, 156, 198, 373, 326]]
+  input-scale: [0.0018045955803245306, 0.004599326755851507, 0.0050233639776706696]
+  maxbboxperclass: 100
+  maxbboxperimg: 200
+  scoreThreshold: 0.65
+  iouThreshold: 0.45
+  softnmssigma: 0.6
+  imgOffset: [0, 0]
+
+classifier-params:
+  classifier-threshold: 0.5
+  classifier-type: "carcolor"
+  labelfile-path: "case/hardhat/config/labels.txt"
+
+segmentation-params:
+  segmentation-threshold: 0.5
+  segmentation-output-order: 0

@@ -1,0 +1,172 @@
+// ─────────────────────────────────────────────────────────
+// media-agent.proto
+// 版本号见 version.proto
+//
+//
+// Socket 传输说明（本地 socket，字节流，需要分帧）：
+// 每个帧格式如下：
+//   1. 4 字节 Magic Number：0xDEADBEEF
+//   2. 4 字节 Protobuf 数据长度（uint32），大端序（网络字节序）
+//   3. Protobuf 数据（序列化后的消息，例如 Envelope）
+//
+// 注意：Magic 和长度字段属于传输层帧头，不属于 Protobuf 消息本身。
+// 接收端应先读满 8 字节帧头，校验 magic，再按长度读取完整 payload 后进行解析。
+// ─────────────────────────────────────────────────────────
+
+syntax = "proto3";
+
+import "version.proto";
+import "types.proto";
+
+// ── 消息信封（Socket 传输单元）────────────────────────────
+enum MessageType {
+    MSG_UNKNOWN             = 0; // 未知
+    MSG_HEARTBEAT           = 1; // 心跳  c → s
+    MSG_CONFIG              = 2; // 下发配置 s → c
+    MSG_ACK                 = 3; // 通用响应 
+    MSG_DETECTION           = 4; // 检测结果帧 c → s
+    MSG_ALARM               = 5; // 报警上报 c → s
+    MSG_OCR                 = 6; // OCR 结果上报 c → s
+    MSG_ALG_MODEL_UPDATE        = 7; // 算法模型更新 s → c
+}
+
+message Envelope {
+    ProtoVersion version     = 1; // 协议版本号，见 version.proto
+    MessageType type         = 2; // 消息类型
+    uint32      seq          = 3; // 序列号
+    
+    oneof body {
+        HeartBeat      heartbeat   = 10;
+        AgentConfig    config      = 11;
+        Ack            ack         = 12;
+        DetectionFrame detection   = 13;
+        AlarmInfo      alarm       = 14;
+        OcrInfo        ocr         = 15;
+        AlgorithmModelUpdate model_update = 16;
+    }
+}
+
+// ── 单个目标 ──────────────────────────────────────────────
+message DetectionObject {
+    uint32        track_id      = 1; // 跟踪 ID（0 表示无跟踪）
+    uint32        class_id      = 2; // 检测类型 ID
+    string        class_name    = 3; // 检测类型字符串
+    float         confidence    = 4; // 置信度 [0,1]
+    Box           bbox          = 5; // 检测框
+    int32         bbox_style    = 6; // 检测框样式，0： CornerOnly，1： BorderSolid，适用于需要突出显示的目标，比如触发报警的目标
+    string        text          = 7; // OCR 文本内容，仅 class_name=text 时有效
+    float         text_score    = 8; // OCR 置信度，仅 class_name=text 时有效
+    
+}
+
+// ── 单帧检测结果 ──────────────────────────────────────────
+message DetectionFrame {
+    string   stream_id      = 1; // 视频流 ID（唯一标识）
+    int64    timestamp_ms   = 2; // 帧时间戳（毫秒 Unix）
+    uint64   frame_index    = 3; // 帧序号
+    int32    frame_width    = 4; // 原始帧宽
+    int32    frame_height   = 5; // 原始帧高
+    repeated DetectionObject objects = 6; // 检测到的目标列表
+}
+
+// ── 批量检测结果 ──────────────────────────────────────────
+message DetectionBatch {
+    int32    detection_count       = 1;
+    repeated DetectionFrame frames = 2;
+}
+
+
+// ── 报警上报 ──────────────────────────────────────────────
+// model_scenario_code 可选值（字符串字面量，区分大小写）
+// 必须为以下值之一：
+// area-intrusion, area-loitering, crowd-gather, people-leave, people-running,
+// vehicle-reverse, vehicle-parking, fire-detection, helmet-detection,
+// climb-detection, garbage-detection, phone-detection, sleep-detection,
+// vest-detection, mask-detection, smoking-detection, face-recognition
+message AlarmInfo {
+    string alarm_id       = 1; // 报警唯一 ID（UUID）
+    string stream_id      = 2; // 触发报警的流 ID
+    int64  timestamp_ms   = 3; // 报警时间戳（毫秒 Unix）
+    string model_scenario_code   = 4; // 模型场景编码，必须是上方“model_scenario_code 可选值”之一
+    int32  level          = 5; // 报警等级：1=提示 2=告警 3=重要 4=紧急
+    float  confidence     = 6; // 触发置信度
+    repeated DetectionObject target = 7; // 触发目标
+    string description    = 8; // 描述信息
+    string snapshot_name  = 9; // 截图文件名（可选）
+    string record_name    = 10; // 视频片段文件名（可选）
+}
+
+// —— OCR 结果上报 ──────────────────────────────────────────
+// model_scenario_code 可选值（字符串字面量，区分大小写）
+// 必须为以下值之一：
+// plate-detection, plate-recognition, plate-det_rec, ocr-detection,
+// ocr-recognition, ocr-det_rec
+message OcrInfo {
+    string ocr_id      = 1; // OCR 结果唯一 ID（UUID）
+    string stream_id   = 2; // 视频流 ID（唯一标识）
+    int64 timestamp_ms   = 3; // 时间戳（毫秒 Unix）
+    string model_scenario_code   = 4; // 模型场景编码，必须是上方“model_scenario_code 可选值”之一
+    repeated DetectionObject target = 5; // OCR 结果列表（class_name=text，text=text_content，text_score=confidence）
+}
+
+// ── 心跳消息 ──────────────────────────────────────────────
+message HeartBeat {
+    string agent_id              = 1;
+    int64  uptime_s              = 2;
+    int32  total_stream_count    = 3;
+    int32  success_stream_count  = 4;
+    int32  failed_stream_count   = 5;
+}
+
+// ── 配置下发（包含 ROI + 目标类型过滤）────────────────────
+// 算法配置块
+message AlgorithmConfig {
+    string model_scenario_code  = 1; // 模型场景编码，必须是上方“model_scenario_code 可选值”之一
+    string model_config_name    = 2; // 模型配置文件，建议使用绝对路径
+    string model_version        = 3; // 模型版本字符串，例如 "1.0.0"
+    float  threshold            = 4; // 默认阈值 [0,1]
+    int32  alarm_level          = 5; // 报警等级：1=提示 2=告警 3=重要 4=紧急
+    // 算法启用日期范围，空=每天
+    int64 start_date            = 6; // (秒，Unix 时间戳)
+    int64 end_date              = 7; // (秒，Unix 时间戳)
+
+    // ROI（支持多个区域）
+    repeated RoiArea rois       = 10;
+}
+
+// 视频流配置
+message StreamConfig {
+    bool  enabled = 1; // 是否启用
+    string stream_id = 2; // 流 ID, 唯一标识，由上级平台维护
+    string rtsp_url  = 3; // 原始 rtsp 拉流地址
+    string new_rtsp_url = 4; // 新 rtsp 推流地址
+    int32  reconnect_interval_s = 5; // 断线重连间隔（秒），无限次重连，0=禁用
+    string alarm_snapshot_dir = 6; // 报警截图目录，建议使用绝对路径，为空表示禁用
+    string alarm_record_dir   = 7; // 报警录像目录，建议使用绝对路径，为空表示禁用
+    int32 alarm_record_duration_s = 8; // 报警录像时长（秒）
+    int32 alarm_dedup_interval_s = 9; // 告警去重时间窗（秒），<=0 使用默认 5 秒
+
+    repeated AlgorithmConfig algorithms = 10;
+}
+
+// 配置下发
+message AgentConfig {
+    string agent_id = 1; // 目标 agent ID（空=广播）
+    int32 config_id = 2; // 配置 ID，唯一标识，由上级平台维护
+    repeated StreamConfig streams = 3;
+}
+
+// 算法模型更新请求
+message AlgorithmModelUpdate {
+    string agent_id = 1; // 目标 agent ID（空=广播）
+    repeated string model_scenario_codes = 2; // 已更新算法 key 列表，使用 model_scenario_code 标识
+}
+
+// 通用响应
+message Ack {
+    string agent_id = 1; // 当前 agent ID
+    MessageType ack_for = 2; // 该 ACK 对应的原始消息类型，例如 MSG_CONFIG / MSG_MODEL_UPDATE
+    bool   success = 3;
+    string message = 4;
+}
+
