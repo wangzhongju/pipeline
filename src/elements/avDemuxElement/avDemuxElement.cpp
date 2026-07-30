@@ -368,9 +368,8 @@ static ES_VOID* plStartSendStream(ES_VOID* pArgs) {
         if (leftFrame > 0) leftFrame--;
         // printf("--------------leftFrame:%d------------------\n", leftFrame);
         // app_warn("%s 5!\n", pAvDemuxElement->mName.c_str());
-        fflush(stdout);
-        app_info("%s-%s-%d-%s av_read_frame ret:%d\n", PLLOG_fileName(__FILE__), __func__, __LINE__,
-                 pAvDemuxElement->mName.c_str(), status);
+        app_debug("%s-%s-%d-%s av_read_frame ret:%d\n", PLLOG_fileName(__FILE__), __func__, __LINE__,
+                  pAvDemuxElement->mName.c_str(), status);
         if (isVoEosFlag) {
             leftFrame = 0;
             loopNum = 1;

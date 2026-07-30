@@ -24,7 +24,7 @@ void QueueElement::threadFunc() {
 
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double, std::milli> elapsed = end - start;
-        app_info("the queue %s  process  all time is took %f ms\n", mName.c_str(), elapsed.count());
+        app_debug("the queue %s process all time took %f ms\n", mName.c_str(), elapsed.count());
 
         if (exitFlag) {
             printf("ElementInner eos  %s \n", mName.c_str());

@@ -377,70 +377,19 @@ private:
         if (package_model_name.empty()) {
             throw std::runtime_error("package root config missing model_name");
         }
-        std::filesystem::path model_path =
+        const std::filesystem::path model_path =
             findExtractedFile(model_dir, package_model_name);
         if (model_path.empty()) {
             throw std::runtime_error(
                 "package model file not found: " + package_model_name);
         }
 
-        nlohmann::json root = package_root;
-        bool nested_schema = package_nested_schema;
-        bool package_has_six_outputs = false;
-        {
-            std::ifstream quant_input(model_dir / "esquant/table.json");
-            nlohmann::json quant;
-            if (quant_input) {
-                quant_input >> quant;
-                package_has_six_outputs =
-                    quant.contains("model_info") &&
-                    quant["model_info"].contains("outputs") &&
-                    quant["model_info"]["outputs"].is_array() &&
-                    quant["model_info"]["outputs"].size() == 6;
-            }
-        }
-        if (group.scenario == "hardhat-detection" &&
-            package_has_six_outputs) {
-            const auto fallback_model =
-                std::filesystem::path(options_.pipeline_root) /
-                "models/260106_hardhat_cls2_512_b1_v1.model";
-            if (!std::filesystem::exists(fallback_model)) {
-                throw std::runtime_error(
-                    "hardhat fallback model not found: " +
-                    fallback_model.string());
-            }
-            model_path = fallback_model;
-            nested_schema = true;
-            root = {
-                {"model_config",
-                 {{"model_name", fallback_model.filename().string()},
-                  {"model_version", "board-fallback"}}},
-                {"preprocess_config",
-                 {{"output_shape", {1, 3, 512, 512}}}},
-                {"postprocess_config",
-                 {{"score_thresholds", {0.65, 0.65}},
-                  {"img_wh", {512, 512}},
-                  {"class_num", 2},
-                  {"input_scale",
-                   {0.0018045955803245306,
-                    0.004599326755851507,
-                    0.0050233639776706696}}}},
-                {"class_config",
-                 {{"classes_nums", 2},
-                  {"class_names", {"helmet", "head"}}}},
-                {"model_type", "yolov8_det"},
-                {"conf_thresh", 0.65},
-                {"iou_thresh", 0.45}
-            };
-            LOG_WARN(
-                "[TaskManager] scenario={} package model={} has unsupported "
-                "six-output postprocess; use board fallback model={}",
-                group.scenario, package_model_name, model_path.string());
-        }
+        const nlohmann::json& root = package_root;
+        const bool nested_schema = package_nested_schema;
 
         const auto preprocess = nested_schema
             ? root.value("preprocess_config", nlohmann::json::object())
-            : nlohmann::json::object();
+            : root.value("preprocess", nlohmann::json::object());
         const auto postprocess = nested_schema
             ? root.value("postprocess_config", nlohmann::json::object())
             : nlohmann::json::object();
@@ -482,6 +431,19 @@ private:
              << "  picture-1:\n    video-format: nv12\ndump:\n  enable: false\n";
         writeText(group_dir / "EsVdec.yaml", vdec.str());
 
+        const auto configured_padding = preprocess.value(
+            "padding_data", nlohmann::json::array({114, 114, 114}));
+        nlohmann::json padding = nlohmann::json::array();
+        for (size_t index = 0; index < 3; ++index) {
+            const int value =
+                configured_padding.is_array() &&
+                        index < configured_padding.size() &&
+                        configured_padding[index].is_number()
+                    ? static_cast<int>(
+                          configured_padding[index].get<double>())
+                    : 114;
+            padding.push_back(value);
+        }
         std::ostringstream pre;
         pre << "%YAML:1.0\ndie-id: 0\ntarget-infer-ids: [1, 3]\n"
             << "select-class-ids: [1, 2, 3]\ninterval: [3, 1]\n"
@@ -489,7 +451,7 @@ private:
             << shape.dump() << "\ndata-type: 4\npoolsize: "
             << options_.preprocess_pool_size << "\nchannel: 0\n\n"
             << "maintain_aspect_ratio:\n  enable: true\n"
-            << "  padding-value: [144, 144, 144]\n\nnormalize:\n"
+            << "  padding-value: " << padding.dump() << "\n\nnormalize:\n"
             << "  enable: true\n  normalizationmode: 1\n"
             << "  maxminreciprocal: [0.00392157, 0.00392157, 0.00392157]\n"
             << "  minvalue: [0.0, 0.0, 0.0]\n"
@@ -520,7 +482,8 @@ private:
         const auto img_wh = postprocess.value(
             "img_wh", nlohmann::json::array({width, height}));
         nlohmann::json input_scale = postprocess.value(
-            "input_scale", nlohmann::json::array());
+            "input_scale", root.value(
+                "input_scale", nlohmann::json::array()));
         if (input_scale.empty()) {
             const auto quant_path = model_dir / "esquant/table.json";
             std::ifstream quant_input(quant_path);
@@ -655,8 +618,16 @@ private:
             const std::string offset = std::to_string(vdec_offset);
             ::setenv("LD_LIBRARY_PATH",
                      (options_.pipeline_root + "/lib").c_str(), 1);
-            ::setenv("PERF_STATIC_FLAG", "1", 1);
-            ::setenv("PL_LOG_LEVEL", "4", 1);
+            const char* worker_perf =
+                ::getenv("PIPELINE_WORKER_PERF_STATIC_FLAG");
+            if (worker_perf != nullptr && worker_perf[0] != '\0') {
+                ::setenv("PERF_STATIC_FLAG", worker_perf, 1);
+            }
+            const char* worker_log_level =
+                ::getenv("PIPELINE_WORKER_LOG_LEVEL");
+            if (worker_log_level != nullptr && worker_log_level[0] != '\0') {
+                ::setenv("PL_LOG_LEVEL", worker_log_level, 1);
+            }
             ::setenv("PIPELINE_VDEC_GROUP_OFFSET", offset.c_str(), 1);
             std::vector<char*> argv;
             for (auto& argument : arguments) {

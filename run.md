@@ -35,12 +35,9 @@ test -S /opt/smart-guard/run/media-agent/media_agent.sock &&
     echo "platform socket OK"
 ```
 
-确认安全帽替代模型和平台 pkg 可读：
+确认平台下发的安全帽 pkg 可读：
 
 ```sh
-test -r models/260106_hardhat_cls2_512_b1_v1.model &&
-    echo "fallback model OK"
-
 test -r \
   /mnt/userdata/smart-guard-edge/recordings/default/ai-models/hardhat-detection/hardhat_detect_eic7700_1_2.pkg &&
     echo "hardhat pkg OK"
@@ -115,7 +112,7 @@ ls -l /tmp/pipeline-agent/alarm.sock
 
 ```sh
 grep -aE \
-  'SocketSender|received config|merged config|worker started|reconciled|fallback model|six-output' \
+  'SocketSender|received config|merged config|worker started|reconciled' \
   /tmp/pipeline-platform.log | tail -n 100
 ```
 
@@ -249,7 +246,8 @@ python3 scripts/mmz_increment_server.py \
 PIPELINE_AGENT_RUNTIME_DIR=/tmp/mmz-agent-test \
 PIPELINE_PLATFORM_SOCKET=/tmp/mmz-platform.sock \
 PIPELINE_ALARM_RELAY_SOCKET=/tmp/mmz-agent-test/alarm.sock \
-PERF_STATIC_FLAG=1 PL_LOG_LEVEL=4 \
+PERF_STATIC_FLAG=1 PIPELINE_WORKER_PERF_STATIC_FLAG=1 \
+PL_LOG_LEVEL=2 PIPELINE_WORKER_LOG_LEVEL=1 \
 ./case/platform/platform_agent.sh >/tmp/mmz-agent.log 2>&1 &
 ```
 
@@ -286,3 +284,53 @@ pgrep -a pipeline_agent || echo "pipeline stopped"
 停止后 `/proc/eswin/vb` 的 `free mem size` 应等于 `total size`，且
 `POOL CONFIG` 下不应残留 pipeline 创建的池。完成模拟测试后，按第 4 节命令
 重新启动真实平台模式。
+
+## 11. CPU、VDEC 与 NPU 性能检查
+
+生产模式默认关闭逐元素性能落盘，worker 只输出 WARN/ERROR。需要采集
+10 秒一次的 Pipeline 性能统计时，在启动前显式设置：
+
+```sh
+PERF_STATIC_FLAG=1 PIPELINE_WORKER_PERF_STATIC_FLAG=1 \
+PL_LOG_LEVEL=2 PIPELINE_WORKER_LOG_LEVEL=1 \
+setsid -f ./case/platform/platform_agent.sh \
+  >/tmp/pipeline-platform.log 2>&1 </dev/null
+```
+
+`EsPreProcess.yaml` 当前使用 `interval: [3, 1]`。预处理按帧序号计算
+`floor(frame_index / 3)`，仅当结果相对上一帧发生变化时放行，所以每路放行
+第 0、3、6、9... 帧。25 FPS 输入时，每路 NPU 输入约为 `25 / 3 = 8.33 FPS`；
+13 路约为 `108.3 FPS`。VDEC 仍解码所有帧，13 路名义总帧率为 325 FPS。
+
+不要用 `top` 的单次刷新判断 worker 的长期 CPU。使用 20 秒平均值：
+
+```sh
+pids=$(pgrep -x pipeline_agent | paste -sd, -)
+pidstat -u -p "$pids" 1 20
+```
+
+`es_hw_watcher` 默认使用 2 秒窗口，异步任务集中提交时读数会明显跳动。VDEC
+是否丢帧应优先使用 `/proc/esmap/dec` 的累计 `DecodeFrmNum` 做长窗口差值：
+
+```sh
+vdec_total()
+{
+  tr -d '\000' </proc/esmap/dec |
+  awk '/GRP STATUS/{in_grp=1;next}
+       /CHN STATUS/{in_grp=0}
+       in_grp && $1 ~ /^[0-9]+$/ {sum += $7}
+       END{print sum+0}'
+}
+
+t0=$(date +%s); f0=$(vdec_total)
+sleep 30
+t1=$(date +%s); f1=$(vdec_total)
+awk -v f0="$f0" -v f1="$f1" -v t0="$t0" -v t1="$t1" \
+  'BEGIN {printf "aggregate VDEC: %.2f fps\n", (f1-f0)/(t1-t0)}'
+
+sudo /opt/eswin/bin/es_hw_watcher -i 2 -c 15
+```
+
+长时间运行时应轮转或定期归档 `/tmp/pipeline-platform.log`。只有定位 Pipeline
+内部问题时才临时设置 `PIPELINE_WORKER_LOG_LEVEL=3`，避免逐帧 DEBUG 日志干扰
+CPU、I/O 和调度。

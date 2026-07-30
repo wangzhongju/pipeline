@@ -20,8 +20,10 @@ fi
 
 export PATH="$pipeline_root/bin:$PATH"
 export LD_LIBRARY_PATH="$pipeline_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-export PERF_STATIC_FLAG=${PERF_STATIC_FLAG:-1}
-export PL_LOG_LEVEL=${PL_LOG_LEVEL:-4}
+export PERF_STATIC_FLAG=${PERF_STATIC_FLAG:-0}
+export PL_LOG_LEVEL=${PL_LOG_LEVEL:-2}
+export PIPELINE_WORKER_PERF_STATIC_FLAG=${PIPELINE_WORKER_PERF_STATIC_FLAG:-$PERF_STATIC_FLAG}
+export PIPELINE_WORKER_LOG_LEVEL=${PIPELINE_WORKER_LOG_LEVEL:-1}
 
 mkdir -p "$runtime_dir"
 lock_file=$runtime_dir/pipeline_agent.lock
