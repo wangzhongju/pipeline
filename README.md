@@ -39,13 +39,14 @@ worker 由同一二进制使用 `pipeline_agent --worker` 运行。
       v
 pipeline_agent 管理进程
       |
-      +--> worker: RTSP A + hardhat
-      +--> worker: RTSP B + hardhat
-      +--> worker: RTSP C + phone
+      +--> worker A: RTSP/解码一次 + 多模型/多事件分支
+      +--> worker B: RTSP/解码一次 + 多模型/多事件分支
+      +--> worker C: RTSP/解码一次 + 多模型/多事件分支
 ```
 
 每路任务独立增删。更新或停止一路时，其他 worker 的 PID、VDEC group、模型
-上下文和事件状态保持不变。
+上下文和事件状态保持不变。同一路事件按 `config/ModelGroups.yaml` 聚合；
+共享模型只推理一次，不同速度模型通过独立有界丢旧队列解耦。
 
 平台操作入口：
 
@@ -219,7 +220,7 @@ case/platform/run_mock_platform_e2e.sh
 平台 worker 默认生成：
 
 ```text
-/tmp/pipeline-agent/<scenario>_<id>/
+/tmp/pipeline-agent/stream_<stream-id>_<id>/
 ```
 
 其中包含解密模型、量化表、标签、固定任务 Protobuf 和动态生成的 YAML。
@@ -269,7 +270,8 @@ pidstat -u -p "$pids" 1 20
 ## 10. 已知限制
 
 - 任务配置变化通过重启对应 worker 生效；
-- 同一路多事件可能加载多个模型上下文；
+- 同一路只拉流解码一次，确实使用不同模型的事件仍加载多个 NPU 上下文；
+- MOSP SEI 检测框需要平台播放器支持；
 - 告警截图当前使用按需软件 JPEG；
 - 告警发送暂未实现持久化磁盘 spool；
 - 心跳成功数量尚未细分 worker 实际健康状态；

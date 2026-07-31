@@ -7,7 +7,7 @@ target_include_directories(
   ${CMAKE_SOURCE_DIR}/pl_launch)
 target_link_libraries(
   pipeline_agent PRIVATE
-  pipeline_agent_ipc pipeline_event pipeline_launcher pthread)
+  pipeline_agent_ipc pipeline_event pipeline_launcher yaml-cpp pthread)
 target_link_options(pipeline_agent PRIVATE -rdynamic)
 
 install(TARGETS pipeline_agent

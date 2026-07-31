@@ -37,7 +37,7 @@ pipeline_agent
 │   ├── 心跳
 │   └── 告警转发
 └── pipeline_agent --worker
-    ├── 一个独立的 stream/scenario/pkg 执行单元
+    ├── 一路设备任务的独立执行单元
     └── 官方 Pipeline 插件图
 ```
 
@@ -65,10 +65,9 @@ smart-guard-edge
 |    +--> EsEvidenceRecorder --> 每路 GOP/录像状态                   |
 |    |                                                             |
 |    v                                                             |
-| EsVdec -> EsMux -> EsQueue -> EsPreProcess -> EsInfer            |
-|                                      -> EsPostProcess(DSP)        |
-|                                      -> EsTrackerLite             |
-|                                      -> EsEvent -> EsTestSink     |
+| EsVdec -> EsMux -> EsFrameFork                                  |
+|                    +-> 有界模型分支 1 -> Event/Sink                 |
+|                    +-> 有界模型分支 N -> Event/Sink                 |
 +------------------------------------------------+-----------------+
                                                  |
                                                  | AlarmInfo 数据报
@@ -142,11 +141,12 @@ enabled=false -> 删除该 stream_id
 执行单元 key：
 
 ```text
-stream_id | model_scenario_code | package_path
+stream_id
 ```
 
-key 明确禁止跨设备按算法聚合。一路设备故障、停止、URL 修改或 pkg 更新不能
-重启其他设备。
+一个任务只有一个 worker、一个 RTSP 会话和一个 VDEC group。key 明确禁止
+跨设备按算法聚合；一路设备故障、停止、URL 修改、事件列表或 pkg 更新只重启
+该路 worker，不能重启其他设备。
 
 管理进程同时保存序列化 `StreamConfig` 作为签名：
 
@@ -156,8 +156,8 @@ key 明确禁止跨设备按算法聚合。一路设备故障、停止、URL 修
 4. 只创建新增 worker；
 5. 模型更新只重载选中的场景。
 
-一个平台任务包含一路设备和多个算法。如果算法的场景/pkg 不同，当前实现为
-每个组合创建独立 worker，但仍由同一个管理进程控制。
+一个平台任务包含一路设备和多个算法。worker 在内部按模型组创建一个或多个
+异步推理分支，不再为每个事件重复拉流和解码。
 
 ## 7. VDEC group 分配
 
@@ -184,8 +184,9 @@ worker 启动流程：
 3. 读取根 JSON；
 4. 定位 pkg 声明的 `.model`；
 5. 读取预处理、类别、阈值和输出尺度；
-6. 生成 Pipeline YAML；
-7. 启动插件图。
+6. 按 `config/ModelGroups.yaml` 声明和 `.model` 内容指纹聚合模型；
+7. 为每个模型组生成独立的 PreProcess/Infer/PostProcess/Tracker/Event 配置；
+8. 启动单解码、多模型分支插件图。
 
 pkg 是模型数据的唯一来源，不存在板端 `.model` fallback 或硬编码替换。
 
@@ -209,22 +210,38 @@ EIC7700 YOLOv8 检测 pkg 包含：
 
 旧的 box/class 六输出模型不再支持。
 
+### 8.1 模型组配置
+
+`config/ModelGroups.yaml` 维护事件到模型组的映射、每组队列深度和抽帧间隔。
+当前 `general-object-detection` 包含：
+
+```text
+area-intrusion, area-loitering, crowd-gather, people-leave,
+people-running, vehicle-reverse, vehicle-parking
+```
+
+同一模型组只创建一个 NPU 上下文，推理结果交给该组全部事件规则。未声明事件
+按解密后 `.model` 内容指纹自动聚合。板端历史 1.1/1.2 pkg 的模型二进制存在
+差异时，显式组可设置 `require_identical_model: false`，并通过
+`canonical_scenario` 固定规范模型；程序会记录指纹差异。生产切换新模型前
+必须确认类别、输入尺寸和 DSP 后处理契约兼容。
+
 ## 9. worker 运行目录
 
 每个 worker 在管理进程运行目录下拥有：
 
 ```text
-<runtime>/<scenario>_<stable-id>/
-├── model/
-├── labels.txt
-├── agent-config.pb
-├── EsAvDemux_1.yaml
+<runtime>/stream_<stream-id>_<stable-id>/
+├── model_1/ ... model_N/
+├── labels_1.txt ... labels_N.txt
+├── agent-config_1.pb ... agent-config_N.pb
+├── EsAvDemux.yaml
 ├── EsVdec.yaml
-├── EsPreProcess.yaml
-├── EsInfer.yaml
-├── EsPostProcess.yaml
-├── EsTrackerLite.yaml
-└── EsEvent.yaml
+├── EsPreProcess_1.yaml ... EsPreProcess_N.yaml
+├── EsInfer_1.yaml ... EsInfer_N.yaml
+├── EsPostProcess_1.yaml ... EsPostProcess_N.yaml
+├── EsTrackerLite_1.yaml ... EsTrackerLite_N.yaml
+└── EsEvent_1.yaml ... EsEvent_N.yaml
 ```
 
 仅在该 worker 启动或重建时重新生成。
@@ -233,16 +250,18 @@ EIC7700 YOLOv8 检测 pkg 包含：
 
 | 平台/pkg 字段 | worker 配置 |
 | --- | --- |
-| `rtsp_url`、`stream_id` | `EsAvDemux_*.yaml` |
+| `rtsp_url`、`stream_id` | `EsAvDemux.yaml` |
 | 模型输入尺寸 | VDEC scale、PreProcess 输出 |
 | padding 参数 | PreProcess letterbox |
-| pkg `.model` | `EsInfer.yaml` |
-| 类别名 | `labels.txt` |
-| 阈值、输出尺度 | `EsPostProcess.yaml` |
-| 完整事件列表 | `agent-config.pb` |
+| pkg `.model` | `EsInfer_N.yaml` |
+| 类别名 | `labels_N.txt` |
+| 阈值、输出尺度 | `EsPostProcess_N.yaml` |
+| 模型组对应事件列表 | `agent-config_N.pb` |
 | 截图、录像目录 | Evidence 配置 |
 
-当前预处理每三帧向推理放行一帧。
+每个模型组的抽帧间隔和有界队列深度由 `ModelGroups.yaml` 配置。默认每三帧
+放行一帧，队列满时丢弃最旧帧；慢模型只降低自身采样率，不阻塞解码线程或
+其他模型分支。
 
 ## 10. worker 插件图
 
@@ -251,15 +270,18 @@ EsAvDemux
   -> EsEvidenceRecorder
   -> EsVdec
   -> EsMux
-  -> EsQueue
-  -> EsPreProcess
-  -> EsInfer
-  -> EsQueue
-  -> EsPostProcess
-  -> EsTrackerLite
-  -> EsEvent
-  -> EsTestSink
+  -> EsFrameFork
+       ├-> EsQueue(drop-oldest) -> Pre/Infer/Post/Tracker/Event -> Sink
+       ├-> EsQueue(drop-oldest) -> Pre/Infer/Post/Tracker/Event -> Sink
+       └-> ...
 ```
+
+`EsFrameFork` 只共享只读的解码图像 FD；每个分支创建独立 frame/batch
+元数据，检测对象、推理输出和跟踪状态互不覆盖。原始帧由引用计数延长到最后
+一个分支释放，不复制 1080P 图像。
+
+VDEC 只保留一个原始分辨率 NV12 输出。每个模型分支从同一个原图 FD
+独立完成缩放和 letterbox，不为首个模型额外创建 VDEC 缩放输出及 VB 池。
 
 ### 10.1 EsAvDemux
 
@@ -267,7 +289,9 @@ EsAvDemux
 
 ### 10.2 EsEvidenceRecorder
 
-在解码前接收压缩包并维护录像状态，不建立第二条 RTSP，也不重新编码视频。
+在解码前接收压缩包，按媒体 PTS 等待检测元数据并注入与 `media-agent`
+兼容的 MOSP `user_data_unregistered` SEI。它维护录像状态，不建立第二条
+RTSP，也不重新编码视频。
 
 ### 10.3 硬件推理链
 
@@ -303,13 +327,24 @@ VDEC、NPU 和 DSP。
 
 该路线对 CPU、NPU、VENC 和内存带宽影响较小。
 
+检测框不使用 `EsOsd` 烧录到解码帧。`EsOsd` 会原地修改共享帧，并要求持续
+VENC 才能得到带框录像，增加 VENC/VB 和内存带宽，还会让快模型等待慢模型。
+当前方案复用 `media-agent` 的 MOSP SEI 协议，将 track id、类别、置信度和
+归一化目标框附加到原压缩码流，平台播放器按协议渲染。
+
+录像在触发时直接创建最终 `.ts` 路径，并在每个 packet 后 `avio_flush`。
+告警不再先上报一个尚不存在的隐藏临时文件；这修复了区域入侵录像偶发无法
+播放，而安全帽录像因访问时序碰巧正常的竞态。
+
 ### 11.2 截图
 
 事件插件选择原始分辨率帧，不保存 512x512 推理张量。检测框根据 letterbox
 比例和 padding 映射回原图。
 
 当前 `EvidenceService` 映射 NV12 并使用 FFmpeg 软件 JPEG。它只处理告警帧，
-不会连续编码，但告警集中时仍可能产生 CPU 和内存带宽峰值。
+不会连续编码，并在复制出的 YUV 帧上绘制目标框、有效 track id（未匹配时
+显示 `#NA`）、类别和置信度。它不会修改供其他模型推理使用的共享解码帧，但告警集中时仍
+可能产生 CPU 和内存带宽峰值。
 
 按需硬件 JPEG worker 是后续优化项。
 
@@ -444,7 +479,8 @@ Pipeline 应以开发板普通用户运行，需要：
 ## 19. 当前限制
 
 - 变化的任务通过重启其 worker 生效，尚未原位热切换 graph branch；
-- 同一路多事件可能加载多个模型上下文；
+- 同一路只解码一次，但确实使用不同模型的事件仍分别占用 NPU 上下文；
+- MOSP SEI 需要平台播放器支持；通用播放器可播放视频但不会自动渲染框；
 - 截图仍使用软件 JPEG；
 - 告警发送有有界内存队列，但没有持久化磁盘 spool；
 - 录像时间轴依赖上游完整传递 PTS/DTS；

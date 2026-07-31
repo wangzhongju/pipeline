@@ -1,15 +1,20 @@
 #include "EvidenceService.h"
 
+#include "SeiInjector.h"
 #include "pipeline_agent/Logger.h"
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <iomanip>
+#include <map>
 #include <sstream>
+#include <unordered_map>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -29,6 +34,8 @@ constexpr int kDefaultRecordSeconds = 10;
 constexpr uint8_t kBoxY = 135;
 constexpr uint8_t kBoxU = 112;
 constexpr uint8_t kBoxV = 194;
+constexpr int64_t kOverlayWaitMs = 400;
+constexpr size_t kMaxPendingPackets = 64;
 
 int64_t steadyNowMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -95,6 +102,91 @@ void paintPixel(AVFrame* frame, int x, int y) {
     frame->data[2][uv_y * frame->linesize[2] + uv_x] = kBoxV;
 }
 
+const std::array<uint8_t, 7>& glyph(char value) {
+    using Rows = std::array<uint8_t, 7>;
+    static const std::unordered_map<char, Rows> table = {
+        {'0',{14,17,19,21,25,17,14}}, {'1',{4,12,4,4,4,4,14}},
+        {'2',{14,17,1,2,4,8,31}}, {'3',{30,1,1,14,1,1,30}},
+        {'4',{2,6,10,18,31,2,2}}, {'5',{31,16,16,30,1,1,30}},
+        {'6',{14,16,16,30,17,17,14}}, {'7',{31,1,2,4,8,8,8}},
+        {'8',{14,17,17,14,17,17,14}}, {'9',{14,17,17,15,1,1,14}},
+        {'A',{14,17,17,31,17,17,17}}, {'B',{30,17,17,30,17,17,30}},
+        {'C',{14,17,16,16,16,17,14}}, {'D',{30,17,17,17,17,17,30}},
+        {'E',{31,16,16,30,16,16,31}}, {'F',{31,16,16,30,16,16,16}},
+        {'G',{14,17,16,23,17,17,15}}, {'H',{17,17,17,31,17,17,17}},
+        {'I',{14,4,4,4,4,4,14}}, {'J',{7,2,2,2,2,18,12}},
+        {'K',{17,18,20,24,20,18,17}}, {'L',{16,16,16,16,16,16,31}},
+        {'M',{17,27,21,21,17,17,17}}, {'N',{17,25,21,19,17,17,17}},
+        {'O',{14,17,17,17,17,17,14}}, {'P',{30,17,17,30,16,16,16}},
+        {'Q',{14,17,17,17,21,18,13}}, {'R',{30,17,17,30,20,18,17}},
+        {'S',{15,16,16,14,1,1,30}}, {'T',{31,4,4,4,4,4,4}},
+        {'U',{17,17,17,17,17,17,14}}, {'V',{17,17,17,17,17,10,4}},
+        {'W',{17,17,17,21,21,21,10}}, {'X',{17,17,10,4,10,17,17}},
+        {'Y',{17,17,10,4,4,4,4}}, {'Z',{31,1,2,4,8,16,31}},
+        {'#',{10,31,10,10,31,10,10}}, {'.',{0,0,0,0,0,12,12}},
+        {'-',{0,0,0,31,0,0,0}}, {'_',{0,0,0,0,0,0,31}},
+        {' ',{0,0,0,0,0,0,0}}, {'?',{14,17,1,2,4,0,4}},
+    };
+    static const Rows unknown{14,17,1,2,4,0,4};
+    const auto it = table.find(value);
+    return it == table.end() ? unknown : it->second;
+}
+
+void fillRect(AVFrame* frame, int left, int top, int right, int bottom,
+              uint8_t y_value, uint8_t u_value, uint8_t v_value) {
+    left = std::clamp(left, 0, frame->width - 1);
+    right = std::clamp(right, 0, frame->width - 1);
+    top = std::clamp(top, 0, frame->height - 1);
+    bottom = std::clamp(bottom, 0, frame->height - 1);
+    for (int y = top; y <= bottom; ++y) {
+        std::memset(frame->data[0] + y * frame->linesize[0] + left,
+                    y_value, right - left + 1);
+    }
+    for (int y = top / 2; y <= bottom / 2; ++y) {
+        for (int x = left / 2; x <= right / 2; ++x) {
+            frame->data[1][y * frame->linesize[1] + x] = u_value;
+            frame->data[2][y * frame->linesize[2] + x] = v_value;
+        }
+    }
+}
+
+void drawLabel(AVFrame* frame, int left, int top, const std::string& text) {
+    const int scale = std::max(1, frame->width / 960);
+    const int char_width = 6 * scale;
+    const int label_width = std::min(
+        frame->width - left,
+        static_cast<int>(text.size()) * char_width + 4 * scale);
+    const int label_height = 9 * scale;
+    const int label_top = top >= label_height ? top - label_height : top;
+    fillRect(frame, left, label_top, left + label_width - 1,
+             label_top + label_height - 1, 32, 128, 128);
+    int cursor = left + 2 * scale;
+    for (unsigned char raw : text) {
+        if (cursor + 5 * scale >= left + label_width) {
+            break;
+        }
+        const char value = raw >= 'a' && raw <= 'z'
+                               ? static_cast<char>(raw - 'a' + 'A')
+                               : (raw >= 32 && raw <= 126
+                                      ? static_cast<char>(raw) : '?');
+        const auto& rows = glyph(value);
+        for (int row = 0; row < 7; ++row) {
+            for (int column = 0; column < 5; ++column) {
+                if ((rows[row] & (1U << (4 - column))) == 0) {
+                    continue;
+                }
+                for (int sy = 0; sy < scale; ++sy) {
+                    for (int sx = 0; sx < scale; ++sx) {
+                        paintPixel(frame, cursor + column * scale + sx,
+                                   label_top + scale + row * scale + sy);
+                    }
+                }
+            }
+        }
+        cursor += char_width;
+    }
+}
+
 void drawBoxes(AVFrame* frame, const std::vector<DetectionObject>& objects) {
     for (const auto& object : objects) {
         if (!object.has_bbox()) {
@@ -124,6 +216,18 @@ void drawBoxes(AVFrame* frame, const std::vector<DetectionObject>& objects) {
                 paintPixel(frame, right - t, y);
             }
         }
+        std::ostringstream label;
+        label << (object.class_name().empty() ? "unknown"
+                                             : object.class_name());
+        label << '#';
+        if (object.track_id() > 0) {
+            label << object.track_id();
+        } else {
+            label << "NA";
+        }
+        label << ' ' << std::fixed << std::setprecision(2)
+              << object.confidence();
+        drawLabel(frame, left, top, label.str());
     }
 }
 
@@ -278,6 +382,68 @@ bool writeJpeg(const std::filesystem::path& output_path,
 
 }  // namespace
 
+class EvidenceService::State {
+public:
+    struct Packet {
+        EncodedVideoPacket metadata;
+        std::vector<uint8_t> data;
+        int64_t queued_at_ms = 0;
+    };
+
+    struct Overlay {
+        int expected_groups = 1;
+        std::unordered_map<std::string, std::vector<DetectionObject>> groups;
+    };
+
+    std::unordered_map<std::string, std::deque<Packet>> packets;
+    std::unordered_map<std::string, std::map<int64_t, Overlay>> overlays;
+};
+
+namespace {
+
+float intersectionOverUnion(const DetectionObject& first,
+                            const DetectionObject& second) {
+    if (!first.has_bbox() || !second.has_bbox()) {
+        return 0.0F;
+    }
+    const auto& a = first.bbox();
+    const auto& b = second.bbox();
+    const float a_left = a.cx() - a.width() * 0.5F;
+    const float a_top = a.cy() - a.height() * 0.5F;
+    const float b_left = b.cx() - b.width() * 0.5F;
+    const float b_top = b.cy() - b.height() * 0.5F;
+    const float overlap_width = std::max(
+        0.0F, std::min(a_left + a.width(), b_left + b.width()) -
+                  std::max(a_left, b_left));
+    const float overlap_height = std::max(
+        0.0F, std::min(a_top + a.height(), b_top + b.height()) -
+                  std::max(a_top, b_top));
+    const float intersection = overlap_width * overlap_height;
+    const float union_area = a.width() * a.height() +
+                             b.width() * b.height() - intersection;
+    return union_area > 0.0F ? intersection / union_area : 0.0F;
+}
+
+void mergeDetections(std::vector<DetectionObject>& destination,
+                     const std::vector<DetectionObject>& source) {
+    for (const auto& object : source) {
+        auto duplicate = std::find_if(
+            destination.begin(), destination.end(),
+            [&object](const DetectionObject& existing) {
+                return existing.class_id() == object.class_id() &&
+                       existing.class_name() == object.class_name() &&
+                       intersectionOverUnion(existing, object) >= 0.85F;
+            });
+        if (duplicate == destination.end()) {
+            destination.push_back(object);
+        } else if (object.confidence() > duplicate->confidence()) {
+            *duplicate = object;
+        }
+    }
+}
+
+}  // namespace
+
 class EvidenceService::Recorder {
 public:
     ~Recorder() {
@@ -343,12 +509,11 @@ public:
 
         file_name_ = relativeEvidenceName(stream_id_, "", "ts");
         const auto final_path = std::filesystem::path(base_dir_) / file_name_;
-        temp_path_ = final_path.parent_path() /
-                     ("." + final_path.filename().string());
+        output_path_ = final_path;
         std::error_code ec;
-        std::filesystem::create_directories(temp_path_.parent_path(), ec);
+        std::filesystem::create_directories(output_path_.parent_path(), ec);
         if (ec || avformat_alloc_output_context2(
-                      &format_, nullptr, "mpegts", temp_path_.c_str()) < 0 ||
+                      &format_, nullptr, "mpegts", output_path_.c_str()) < 0 ||
             !format_) {
             close();
             return {};
@@ -364,7 +529,7 @@ public:
         stream_->codecpar->codec_id = codec_id_;
         stream_->codecpar->width = width_;
         stream_->codecpar->height = height_;
-        if (avio_open(&format_->pb, temp_path_.c_str(), AVIO_FLAG_WRITE) < 0 ||
+        if (avio_open(&format_->pb, output_path_.c_str(), AVIO_FLAG_WRITE) < 0 ||
             avformat_write_header(format_, nullptr) < 0) {
             close();
             return {};
@@ -388,22 +553,13 @@ public:
             avformat_free_context(format_);
             format_ = nullptr;
             stream_ = nullptr;
-            const auto final_path =
-                std::filesystem::path(base_dir_) / file_name_;
-            std::error_code ec;
-            std::filesystem::rename(temp_path_, final_path, ec);
-            if (ec) {
-                LOG_ERROR("[Evidence] record finalize failed temp={} final={} error={}",
-                          temp_path_.string(), final_path.string(), ec.message());
-            } else {
-                LOG_INFO("[Evidence] record saved stream={} file={}",
-                         stream_id_, final_path.string());
-            }
+            LOG_INFO("[Evidence] record saved stream={} file={}",
+                     stream_id_, output_path_.string());
         }
         deadline_ms_ = 0;
         start_timestamp_ = AV_NOPTS_VALUE;
         file_name_.clear();
-        temp_path_.clear();
+        output_path_.clear();
     }
 
 private:
@@ -435,6 +591,9 @@ private:
                       stream_id_, ffmpegError(result));
             return false;
         }
+        if (format_->pb) {
+            avio_flush(format_->pb);
+        }
         return true;
     }
 
@@ -454,7 +613,7 @@ private:
     std::string stream_id_;
     std::string base_dir_;
     std::string file_name_;
-    std::filesystem::path temp_path_;
+    std::filesystem::path output_path_;
     int duration_seconds_ = kDefaultRecordSeconds;
     int64_t deadline_ms_ = 0;
     int64_t start_timestamp_ = AV_NOPTS_VALUE;
@@ -471,6 +630,8 @@ EvidenceService& EvidenceService::instance() {
     static EvidenceService service;
     return service;
 }
+
+EvidenceService::EvidenceService() : state_(std::make_unique<State>()) {}
 
 EvidenceService::~EvidenceService() {
     close();
@@ -495,7 +656,10 @@ void EvidenceService::applyConfig(const AgentConfig& config) {
     }
     for (auto it = recorders_.begin(); it != recorders_.end();) {
         if (next.find(it->first) == next.end()) {
+            drainPacketsLocked(it->first, true);
             it->second->close();
+            state_->packets.erase(it->first);
+            state_->overlays.erase(it->first);
             it = recorders_.erase(it);
         } else {
             ++it;
@@ -508,11 +672,86 @@ bool EvidenceService::appendPacket(const std::string& stream_id,
                                    const EncodedVideoPacket& packet) {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto it = recorders_.find(stream_id);
-    return it == recorders_.end() || it->second->append(packet);
+    if (it == recorders_.end()) {
+        return true;
+    }
+    State::Packet owned;
+    owned.metadata = packet;
+    owned.data.assign(packet.data, packet.data + packet.size);
+    owned.metadata.data = nullptr;
+    owned.queued_at_ms = steadyNowMs();
+    state_->packets[stream_id].push_back(std::move(owned));
+    drainPacketsLocked(stream_id, false);
+    return true;
+}
+
+void EvidenceService::updateDetections(
+    const std::string& stream_id, int64_t media_pts_ms,
+    const std::string& model_group_id, int expected_model_groups,
+    const std::vector<DetectionObject>& objects) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (recorders_.find(stream_id) == recorders_.end()) {
+        return;
+    }
+    auto& overlay = state_->overlays[stream_id][media_pts_ms];
+    overlay.expected_groups =
+        std::max(overlay.expected_groups, std::max(1, expected_model_groups));
+    overlay.groups[model_group_id] = objects;
+    while (state_->overlays[stream_id].size() > kMaxPendingPackets * 2) {
+        state_->overlays[stream_id].erase(
+            state_->overlays[stream_id].begin());
+    }
+    drainPacketsLocked(stream_id, false);
+}
+
+void EvidenceService::drainPacketsLocked(const std::string& stream_id,
+                                         bool force) {
+    const auto recorder_it = recorders_.find(stream_id);
+    if (recorder_it == recorders_.end()) {
+        return;
+    }
+    auto& packets = state_->packets[stream_id];
+    auto& overlays = state_->overlays[stream_id];
+    while (!packets.empty()) {
+        auto overlay_it = overlays.find(packets.front().metadata.media_pts_ms);
+        const bool complete =
+            overlay_it != overlays.end() &&
+            static_cast<int>(overlay_it->second.groups.size()) >=
+                overlay_it->second.expected_groups;
+        const bool expired =
+            steadyNowMs() - packets.front().queued_at_ms >= kOverlayWaitMs;
+        if (!force && !complete && !expired &&
+            packets.size() <= kMaxPendingPackets) {
+            break;
+        }
+
+        State::Packet packet = std::move(packets.front());
+        packets.pop_front();
+        std::vector<DetectionObject> objects;
+        if (overlay_it != overlays.end()) {
+            for (const auto& group : overlay_it->second.groups) {
+                mergeDetections(objects, group.second);
+            }
+            overlays.erase(overlay_it);
+        }
+
+        std::vector<uint8_t> annotated;
+        if (injectMospSei(packet.data.data(), packet.data.size(),
+                          packet.metadata.codec_id, objects,
+                          static_cast<int>(kOverlayWaitMs * 2), annotated)) {
+            packet.metadata.data = annotated.data();
+            packet.metadata.size = static_cast<int>(annotated.size());
+        } else {
+            packet.metadata.data = packet.data.data();
+            packet.metadata.size = static_cast<int>(packet.data.size());
+        }
+        recorder_it->second->append(packet.metadata);
+    }
 }
 
 std::string EvidenceService::triggerRecording(const std::string& stream_id) {
     std::lock_guard<std::mutex> lock(mutex_);
+    drainPacketsLocked(stream_id, false);
     const auto it = recorders_.find(stream_id);
     return it == recorders_.end() ? std::string{} : it->second->trigger();
 }
@@ -549,10 +788,13 @@ std::string EvidenceService::saveSnapshot(
 void EvidenceService::close() {
     std::lock_guard<std::mutex> lock(mutex_);
     for (auto& entry : recorders_) {
+        drainPacketsLocked(entry.first, true);
         entry.second->close();
     }
     recorders_.clear();
     configs_.clear();
+    state_->packets.clear();
+    state_->overlays.clear();
 }
 
 }  // namespace pipeline::evidence

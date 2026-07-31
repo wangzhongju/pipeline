@@ -591,3 +591,78 @@ case/platform/README.md
 case/platform/run.md
 case/platform/mock_platform.py
 ```
+
+## 18. 单路多事件、证据标注与区域录像修复
+
+### 18.1 旧架构问题
+
+旧 worker key 为 `stream_id + scenario + pkg`。同一路任务每增加一个事件就
+增加一个 RTSP、VDEC、VB pool 和模型上下文。七个通用目标事件即使使用同一
+检测模型，也会重复推理；多个不同速度模型还会互相形成无界积压风险。
+
+调整后 worker key 只有 `stream_id`：
+
+```text
+一次 RTSP -> 一次 VDEC -> EsFrameFork
+                         ├-> 模型组 1 有界丢旧队列
+                         ├-> 模型组 2 有界丢旧队列
+                         └-> ...
+```
+
+`EsFrameFork` 不复制图像，只共享只读 FD 和源帧引用；各分支拥有独立元数据。
+慢模型队列满时丢弃自己的最旧帧，不阻塞解码和其他模型。
+
+VDEC 只输出一个原始分辨率 NV12 通道。各模型的 `EsPreProcess` 都从通道 0
+读取同一个原图 FD，并按本模型输入尺寸独立缩放和 letterbox；不再保留旧
+单模型链路中的额外“首模型尺寸 VDEC 缩放通道”，从而避免为每路流多申请
+一套无实际消费者的 VB 图像池。
+
+### 18.2 模型复用
+
+`config/ModelGroups.yaml` 维护事件分组、规范事件、队列深度和抽帧间隔。
+七个通用目标事件归入 `general-object-detection`，一个任务内只创建一个
+NPU 上下文，推理结果供多个事件规则判断。未配置事件按 `.model` 内容指纹
+自动聚合。
+
+板端历史 area-intrusion 1.2 与 area-loitering 1.1 pkg 的 `.model` 指纹
+不同，因此显式组使用 `canonical_scenario: area-intrusion`，并记录差异
+告警。后续替换 pkg 时仍需验证类别、输入尺寸和 DSP 后处理 ABI。
+
+### 18.3 截图与视频标注方案
+
+对比结果：
+
+- `EsOsd` 适合显示或必须烧录像素的输出，但会原地修改解码帧；多模型共享
+  FD 时存在数据竞争，录像还需要持续 VENC，增加 VENC/VB 和带宽占用。
+- `media-agent` 的 MOSP SEI 不改视频像素，不重新编码，能在原压缩码流中
+  携带 track id、类别、置信度和框，适合当前平台播放器与多模型架构。
+
+因此截图在复制出的原分辨率 YUV 上软件绘制标签，视频复用 MOSP
+`user_data_unregistered` SEI。协议规定 track id 0 表示未跟踪：有效 ID
+按原值显示，未匹配目标在截图中明确显示 `#NA`，不能伪造为同一个 ID。
+
+### 18.4 区域入侵录像偶发不可播放
+
+原录像先写隐藏临时文件，告警立即上报最终路径，录制结束后才 rename。平台
+若在 rename 前读取，得到文件不存在或不完整；安全帽成功只是访问时序碰巧
+较晚，区域入侵更容易复现竞态。
+
+修复后触发时直接创建最终 `.ts`，每写一个 packet 调用 `avio_flush`。TS
+允许边写边读，平台收到告警时路径已存在，并且已有可探测的 PAT/PMT 和视频
+包。
+
+### 18.5 板端验证
+
+2026-07-30 在 EIC7700 板端完成：
+
+- 两路任务、多事件增删共 6 次配置全部 ACK；
+- worker 数始终等于设备路数，未修改流 PID 不变；
+- `general-object-detection:2` 只创建 `model_groups=1`；
+- 区域入侵截图为 1920x1080，包含类别、追踪状态和置信度标注；
+- 未获得稳定追踪匹配的目标显示为 `PERSON#NA 0.89`，不再伪造重复 ID；
+- 最终回归 TS 为 H.264 1920x1080、5.84 秒、约 4.24 MB，
+  `ffprobe` 可完整解析；
+- `trace_headers` 在最终回归片段中检测到 43 条
+  `User Data Unregistered` SEI；
+- stop-all 前后 MMZ free 均为 `0x17ffff000`；
+- 全流程 `critical_error_count=0`。

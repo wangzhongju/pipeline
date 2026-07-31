@@ -472,6 +472,31 @@ int option_parser(int argc, char *argv[], CPipeLine *pipe) {
                 prev = EsDemux;
                 linkFlag = false;
             }
+        } else if (!strcmp(argv[argcIndex], "EsFrameFork")) {
+            argcIndex++;
+            static int idx = 0;
+            ElementParam param;
+            param.name = "EsFrameFork" + to_string(idx++);
+            argcIndex = element_option_parser(argv, argcIndex, argc, &param);
+            numa_set_preferred(param.dieIndex);
+            auto create_func =
+                PluginMgr::Inst().LoadPlugin<CElement *(const char *, int)>(
+                    "libes_plframefork.so", RTLD_NOW,
+                    "createEsFrameForkElement");
+            if (create_func) {
+                CElement *EsFrameFork = create_func(
+                    param.name.c_str(), param.dieIndex);
+                gElementNameMap[param.name] = EsFrameFork;
+                pipe->AddToPipeline(EsFrameFork, NULL);
+                if (linkFlag) {
+                    if (prev != NULL)
+                        pipe->LinkMany(prev, EsFrameFork, NULL);
+                    else
+                        printf("%s prev cannot be NULL\n", param.name.c_str());
+                }
+                prev = EsFrameFork;
+                linkFlag = false;
+            }
         } else if (!strcmp(argv[argcIndex], "EsTee")) {
             argcIndex++;
             static int idx = 0;

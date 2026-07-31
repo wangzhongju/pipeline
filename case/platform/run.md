@@ -20,9 +20,10 @@ pipeline_agent
 - 未出现在本次消息中的其他活动任务保持不变；
 - 新增、更新和停止一路任务时，只协调受影响的 worker。
 
-一个任务包含一路设备和多个 `AlgorithmConfig`。当前 worker 隔离键包含
-`stream_id + scenario + pkg`，因此同一路设备配置多个不同事件时，每个事件
-拥有独立的推理和事件状态，管理进程仍只有一个。
+一个任务包含一路设备和多个 `AlgorithmConfig`。worker 隔离键是
+`stream_id`，因此一个任务只有一个 RTSP、一个 VDEC 和一个 worker。worker
+内部根据 `config/ModelGroups.yaml` 将事件聚合为模型分支；共享模型只推理
+一次，确实不同的模型通过独立有界队列异步运行。
 
 ## 2. 开发板目录
 
@@ -39,6 +40,7 @@ bin/pipeline_agent
 lib/
 config/Event.yaml
 config/EsTracker.yaml
+config/ModelGroups.yaml
 case/platform/launch_pipeline_agent.sh
 case/platform/mock_platform.py
 case/platform/run_real_platform.sh
@@ -56,6 +58,7 @@ cd /home/ubuntu/workspace/test/pipeline
 test -x bin/pipeline_agent && echo "pipeline_agent OK"
 test -r config/Event.yaml && echo "Event.yaml OK"
 test -r config/EsTracker.yaml && echo "EsTracker.yaml OK"
+test -r config/ModelGroups.yaml && echo "ModelGroups.yaml OK"
 ```
 
 真实平台模式还要检查平台服务和 UDS：
@@ -214,7 +217,7 @@ cd /home/ubuntu/workspace/test/pipeline
 3. 启动模拟 UDS 和 Pipeline 管理进程；
 4. 逐路启动 3 个任务；
 5. 停止并恢复第 2 路，比较其他 worker PID；
-6. 为第 1 路增加并移除第二事件；
+6. 为第 1 路增加并移除第二事件，确认 worker 总数不变、其他路 PID 不变；
 7. 检查截图、TS、心跳、ACK 和告警；
 8. 采集 VDEC/NPU/DSP 和进程状态；
 9. `stop-all` 并检查 MMZ 恢复；
@@ -238,6 +241,21 @@ cd /home/ubuntu/workspace/test/pipeline
   --extra-scenario phone-detection \
   --extra-package /path/phone_detect_eic7700_1_2.pkg
 ```
+
+验证共享通用目标模型只创建一个推理分支：
+
+```sh
+./case/platform/run_mock_platform_e2e.sh \
+  --channels 1 \
+  --skip-churn \
+  --scenario area-intrusion \
+  --package /mnt/userdata/smart-guard-edge/recordings/default/ai-models/area-intrusion/area-intrusion_eic7700_1_2.pkg \
+  --extra-scenario area-loitering \
+  --extra-package /mnt/userdata/smart-guard-edge/recordings/default/ai-models/area-loitering/area-loitering_eic7700_1_1.pkg
+```
+
+管理日志应出现 `model_groups=1` 和
+`groups=[general-object-detection:2]`。
 
 只测试配置和 worker 生命周期：
 

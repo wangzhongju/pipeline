@@ -51,7 +51,8 @@ cd /home/ubuntu/workspace/test/pipeline
 ```
 
 默认验证三路任务、单路停止和恢复、单路多事件增删、截图、录像、告警、
-VDEC/NPU/DSP、MMZ 回收，并在结束后恢复测试前的真实平台模式。
+VDEC/NPU/DSP、MMZ 回收，并在结束后恢复测试前的真实平台模式。多事件阶段
+要求 worker 数仍等于设备路数，且除目标流外的 worker PID 不变化。
 
 13 路任务示例：
 

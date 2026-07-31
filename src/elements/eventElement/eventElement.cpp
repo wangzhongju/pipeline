@@ -46,7 +46,9 @@ event_roi_mode_t roiMode(const RoiArea &roi) {
 
 DetectionObject toProtoObject(const event_object_t &object) {
     DetectionObject result;
-    result.set_track_id(object.tracker_id > 0 ? object.tracker_id : 0);
+    result.set_track_id(
+        object.tracker_id > 0
+            ? static_cast<uint32_t>(object.tracker_id) : 0U);
     result.set_class_id(object.class_id >= 0 ? object.class_id : 0);
     result.set_class_name(object.class_name == nullptr ? "" : object.class_name);
     result.set_confidence(object.confidence);
@@ -55,6 +57,27 @@ DetectionObject toProtoObject(const event_object_t &object) {
     box->set_cy(object.y);
     box->set_width(object.width);
     box->set_height(object.height);
+    return result;
+}
+
+DetectionObject toProtoObject(const CObjectMeta &object) {
+    DetectionObject result;
+    result.set_track_id(
+        object.trackerId > 0
+            ? static_cast<uint32_t>(object.trackerId) : 0U);
+    result.set_class_id(object.classId >= 0 ? object.classId : 0);
+    result.set_class_name(object.objLable);
+    result.set_confidence(
+        object.trackerId >= 0 && object.trackerConfidence > 0.0F
+            ? object.trackerConfidence
+            : object.detectorConfidence);
+    const CBboxInfo &source = object.trackerId >= 0
+        ? object.trackerBboxInfo : object.detectorBboxInfo;
+    Box *box = result.mutable_bbox();
+    box->set_cx(source.left + source.width * 0.5F);
+    box->set_cy(source.top + source.height * 0.5F);
+    box->set_width(source.width);
+    box->set_height(source.height);
     return result;
 }
 
@@ -80,6 +103,10 @@ app_ret EventElement::Init() {
     fixedConfigPath_ = config["fixed-agent-config"].as<std::string>("");
     alarmRelayPath_ = config["alarm-relay-socket"].as<std::string>("");
     scenarioFilter_ = config["scenario-code"].as<std::string>("");
+    modelGroupId_ = config["model-group-id"].as<std::string>(
+        scenarioFilter_.empty() ? mName : scenarioFilter_);
+    modelGroupCount_ = std::max(
+        1, config["model-group-count"].as<int>(1));
     sendQueueSize_ = config["send-queue-size"].as<int>(100);
     heartbeatIntervalMs_ = config["heartbeat-interval-ms"].as<int>(10000);
 
@@ -216,6 +243,8 @@ app_ret EventElement::ProcessData(
         }
 
         std::vector<event_object_t> objects(frame->objs.size());
+        std::vector<DetectionObject> detections;
+        detections.reserve(frame->objs.size());
         for (size_t index = 0; index < frame->objs.size(); ++index) {
             const CObjectMeta *object = frame->objs[index];
             const CBboxInfo &box = object->trackerId >= 0
@@ -229,7 +258,11 @@ app_ret EventElement::ProcessData(
             objects[index].y = box.top + box.height * 0.5F;
             objects[index].width = box.width;
             objects[index].height = box.height;
+            detections.push_back(toProtoObject(*object));
         }
+        pipeline::evidence::EvidenceService::instance().updateDetections(
+            streamId, static_cast<int64_t>(frame->pts), modelGroupId_,
+            modelGroupCount_, detections);
 
         std::vector<AlgorithmConfig> algorithms;
         std::vector<std::vector<event_point2d_t>> pointStorage;

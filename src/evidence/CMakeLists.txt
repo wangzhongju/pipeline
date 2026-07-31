@@ -1,4 +1,4 @@
-add_library(pipeline_evidence SHARED EvidenceService.cpp)
+add_library(pipeline_evidence SHARED EvidenceService.cpp SeiInjector.cpp)
 set_target_properties(
   pipeline_evidence PROPERTIES VERSION ${ESSDKPL_VERISION}
                                SOVERSION ${ESSDKPL_SOVERISION})

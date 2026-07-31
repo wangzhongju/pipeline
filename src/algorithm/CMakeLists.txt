@@ -59,7 +59,7 @@ target_link_libraries(pipeline_event PRIVATE
 
 install(TARGETS pipeline_tracker pipeline_event
         LIBRARY DESTINATION ${ESSDKPL_LIB_INSTALL_PATH})
-install(FILES config/Event.yaml config/EsTracker.yaml
+install(FILES config/Event.yaml config/EsTracker.yaml config/ModelGroups.yaml
         DESTINATION "${CMAKE_INSTALL_PREFIX}/opt/demo/pipeline/config")
-file(COPY config/Event.yaml config/EsTracker.yaml
+file(COPY config/Event.yaml config/EsTracker.yaml config/ModelGroups.yaml
      DESTINATION "${PROJECT_BINARY_DIR}/config")

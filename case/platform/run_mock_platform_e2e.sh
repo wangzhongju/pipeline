@@ -158,7 +158,7 @@ manager_count() {
 }
 
 worker_map() {
-    local pid config_dir stream worker_scenario
+    local pid config_dir stream
     for pid in $(pgrep -f "$agent_binary --worker" 2>/dev/null || true); do
         [[ -r /proc/$pid/cmdline ]] || continue
         config_dir=$(
@@ -168,14 +168,9 @@ worker_map() {
         [[ -n $config_dir ]] || continue
         stream=$(
             awk '/^stream-id:/ {print $2; exit}' \
-                "${config_dir%/}/EsAvDemux_1.yaml"
+                "${config_dir%/}/EsAvDemux.yaml"
         )
-        worker_scenario=$(
-            awk '/^scenario-code:/ {print $2; exit}' \
-                "${config_dir%/}/EsEvent.yaml"
-        )
-        printf '%s %s %s %s\n' \
-            "$stream" "$worker_scenario" "$pid" "$config_dir"
+        printf '%s %s %s\n' "$stream" "$pid" "$config_dir"
     done | sort
 }
 
@@ -300,9 +295,27 @@ start_stream_multi_event() {
 }
 
 pid_from_map() {
-    local map_file=$1 stream=$2 event=$3
-    awk -v stream="$stream" -v event="$event" \
-        '$1==stream && $2==event {print $3; exit}' "$map_file"
+    local map_file=$1 stream=$2
+    awk -v stream="$stream" '$1==stream {print $2; exit}' "$map_file"
+}
+
+config_dir_from_map() {
+    local map_file=$1 stream=$2
+    awk -v stream="$stream" '$1==stream {print $3; exit}' "$map_file"
+}
+
+wait_for_stream_pid_change() {
+    local stream=$1 old_pid=$2 elapsed=0 current_pid
+    while (( elapsed < worker_timeout )); do
+        current_pid=$(worker_map | awk -v stream="$stream" \
+            '$1==stream {print $2; exit}')
+        if [[ -n $current_pid && $current_pid != "$old_pid" ]]; then
+            return 0
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+    die "等待目标流 worker 重建超时：stream=$stream old_pid=$old_pid"
 }
 
 assert_base_workers_unchanged() {
@@ -311,8 +324,8 @@ assert_base_workers_unchanged() {
     for ((position = 1; position <= channels; ++position)); do
         [[ $position -eq $skip_position ]] && continue
         stream=$(stream_id_for_position "$position")
-        old_pid=$(pid_from_map "$before" "$stream" "$scenario")
-        new_pid=$(pid_from_map "$after" "$stream" "$scenario")
+        old_pid=$(pid_from_map "$before" "$stream")
+        new_pid=$(pid_from_map "$after" "$stream")
         [[ -n $old_pid && $old_pid == "$new_pid" ]] ||
             die "worker 意外变化：stream=$stream before=$old_pid after=$new_pid"
     done
@@ -686,27 +699,43 @@ fi
 if (( multi_event_index > 0 )); then
     log "验证第 $multi_event_index 路多事件增删"
     worker_map >"$result_dir/workers.multievent.before.txt"
+    multi_stream=$(stream_id_for_position "$multi_event_index")
+    old_pid=$(pid_from_map "$result_dir/workers.multievent.before.txt" \
+        "$multi_stream")
     start_stream_multi_event "$multi_event_index" >>"$result_dir/commands.log"
-    wait_for_worker_count "$((channels + 1))"
+    wait_for_worker_count "$channels"
+    wait_for_stream_pid_change "$multi_stream" "$old_pid"
     sleep "$operation_wait"
     worker_map >"$result_dir/workers.multievent.added.txt"
     assert_base_workers_unchanged \
         "$result_dir/workers.multievent.before.txt" \
-        "$result_dir/workers.multievent.added.txt"
-    multi_stream=$(stream_id_for_position "$multi_event_index")
+        "$result_dir/workers.multievent.added.txt" \
+        "$multi_event_index"
+    new_pid=$(pid_from_map "$result_dir/workers.multievent.added.txt" \
+        "$multi_stream")
+    [[ -n $new_pid && $new_pid != "$old_pid" ]] ||
+        die "多事件更新未重建目标流 worker：$multi_stream"
+    config_dir=$(config_dir_from_map \
+        "$result_dir/workers.multievent.added.txt" "$multi_stream")
+    grep -aFq "$extra_scenario" "$config_dir"/agent-config_*.pb ||
+        die "目标流配置中未找到第二事件：$extra_scenario"
     [[ -n $(pid_from_map "$result_dir/workers.multievent.added.txt" \
         "$multi_stream" "$extra_scenario") ]] ||
         die "第二事件 worker 未创建"
 
+    old_pid=$new_pid
     start_stream "$multi_event_index" >>"$result_dir/commands.log"
     wait_for_worker_count "$channels"
+    wait_for_stream_pid_change "$multi_stream" "$old_pid"
     sleep "$operation_wait"
     worker_map >"$result_dir/workers.multievent.removed.txt"
     assert_base_workers_unchanged \
         "$result_dir/workers.multievent.before.txt" \
-        "$result_dir/workers.multievent.removed.txt"
-    [[ -z $(pid_from_map "$result_dir/workers.multievent.removed.txt" \
-        "$multi_stream" "$extra_scenario") ]] ||
+        "$result_dir/workers.multievent.removed.txt" \
+        "$multi_event_index"
+    config_dir=$(config_dir_from_map \
+        "$result_dir/workers.multievent.removed.txt" "$multi_stream")
+    ! grep -aFq "$extra_scenario" "$config_dir"/agent-config_*.pb ||
         die "第二事件 worker 未移除"
 fi
 

@@ -30,6 +30,7 @@ struct EncodedVideoPacket {
     int64_t duration = 0;
     int time_base_num = 1;
     int time_base_den = 1000;
+    int64_t media_pts_ms = 0;
     bool key_frame = false;
 };
 
@@ -40,6 +41,11 @@ public:
     void applyConfig(const AgentConfig& config);
     bool appendPacket(const std::string& stream_id,
                       const EncodedVideoPacket& packet);
+    void updateDetections(const std::string& stream_id,
+                          int64_t media_pts_ms,
+                          const std::string& model_group_id,
+                          int expected_model_groups,
+                          const std::vector<DetectionObject>& objects);
     std::string triggerRecording(const std::string& stream_id);
     std::string saveSnapshot(const std::string& stream_id,
                              const VIDEO_FRAME_INFO_S& frame,
@@ -49,13 +55,16 @@ public:
 
 private:
     class Recorder;
+    class State;
 
-    EvidenceService() = default;
+    EvidenceService();
     ~EvidenceService();
+    void drainPacketsLocked(const std::string& stream_id, bool force);
 
     std::mutex mutex_;
     std::unordered_map<std::string, StreamConfig> configs_;
     std::unordered_map<std::string, std::unique_ptr<Recorder>> recorders_;
+    std::unique_ptr<State> state_;
 };
 
 }  // namespace pipeline::evidence

@@ -4,6 +4,8 @@
 #include <yaml-cpp/yaml.h>
 
 #include <ctime>  // 包含头文件
+#include <iomanip>
+#include <sstream>
 
 #include "yaml_parser.h"
 
@@ -146,26 +148,26 @@ app_ret OsdElement::ProcessFrameMeta(CFrameMeta* frameMeta) {
             width = (x + width < 1) ? width : 1 - x;
             height = (y + height < 1) ? height : 1 - y;
 
-            string objLable = obj->objLable;
-            trim(objLable);
+            string objectLabel = obj->objLable;
+            trim(objectLabel);
             if (obj->trackerId >= 0) {
-                objLable.append("_");
-                objLable.append(std::to_string(obj->trackerId));
+                objectLabel.append("#");
+                objectLabel.append(std::to_string(obj->trackerId));
             }
-            app_debug("object order %d, x %f, y %f, w %f, h %f, lable %s\n", i, x, y, width, height, objLable.c_str());
-
-            // confidence
-            float confidence = obj->detectorConfidence;
-            string strNum = ":" + to_string(confidence);  // 先将浮点数转换为字符串
-            int decimalPos = strNum.find('.');            // 查找小数点所在位置
-            strNum.resize(decimalPos + 3, '\0');
+            const float confidence = obj->trackerConfidence > 0.0F
+                                         ? obj->trackerConfidence
+                                         : obj->detectorConfidence;
+            std::ostringstream labelStream;
+            labelStream << objectLabel << " " << std::fixed
+                        << std::setprecision(2) << confidence;
+            objectLabel = labelStream.str();
+            app_debug("object order %d, x %f, y %f, w %f, h %f, label %s\n",
+                      i, x, y, width, height, objectLabel.c_str());
 
             if (x < 0 || y < 0) {
                 Rect2f textRect = {0, 0, 1, mOsdParam.fontheight};
                 textRects.push_back(textRect);
-                strings.push_back(objLable);
-                textNum++;
-                strings.push_back(strNum);
+                strings.push_back(objectLabel);
                 textNum++;
             } else {
                 Rect2f rectRect = {x, y, width, height};
@@ -177,12 +179,9 @@ app_ret OsdElement::ProcessFrameMeta(CFrameMeta* frameMeta) {
 
                 rectRects.push_back(rectRect);
                 textRects.push_back(textRect);
-                strings.push_back(objLable);
+                strings.push_back(objectLabel);
                 textNum++;
                 rectNum++;
-
-                strings.push_back(strNum);
-                textNum++;
             }
         }
         app_debug("textNum:%d,rectNum:%d\n", textNum, rectNum);

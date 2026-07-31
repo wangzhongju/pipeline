@@ -1,0 +1,21 @@
+version: 1
+default_queue_depth: 2
+
+# 同一组内的事件必须使用字节内容相同的 .model 文件。程序启动时会校验；
+# 未列出的事件自动按 .model 内容指纹聚合。
+groups:
+  general-object-detection:
+    queue_depth: 2
+    infer_interval: 3
+    # 当前板端历史 pkg 存在 1.1/1.2 量化版本差异，但类别和后处理契约一致。
+    # 该组固定使用区域入侵 pkg 为规范模型，只执行一次推理。
+    require_identical_model: false
+    canonical_scenario: area-intrusion
+    scenarios:
+      - area-intrusion
+      - area-loitering
+      - crowd-gather
+      - people-leave
+      - people-running
+      - vehicle-reverse
+      - vehicle-parking

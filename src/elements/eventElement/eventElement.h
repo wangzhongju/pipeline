@@ -45,6 +45,8 @@ class EventElement : public CElement {
     std::string fixedConfigPath_;
     std::string alarmRelayPath_;
     std::string scenarioFilter_;
+    std::string modelGroupId_;
+    int modelGroupCount_ = 1;
     int sendQueueSize_ = 100;
     int heartbeatIntervalMs_ = 10000;
 

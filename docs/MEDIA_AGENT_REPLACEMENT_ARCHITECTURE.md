@@ -39,7 +39,7 @@ pipeline_agent
 │   ├── heartbeat
 │   └── alarm forwarding
 └── pipeline_agent --worker
-    ├── one isolated stream/scenario/package execution unit
+    ├── one isolated device-stream execution unit
     └── official Pipeline plugin graph
 ```
 
@@ -69,10 +69,9 @@ smart-guard-edge
 |    +--> EsEvidenceRecorder --> per-stream GOP/record state        |
 |    |                                                             |
 |    v                                                             |
-| EsVdec -> EsMux -> EsQueue -> EsPreProcess -> EsInfer            |
-|                                      -> EsPostProcess(DSP)        |
-|                                      -> EsTrackerLite             |
-|                                      -> EsEvent -> EsTestSink     |
+| EsVdec -> EsMux -> EsFrameFork                                  |
+|                    +-> bounded model branch 1 -> Event/Sink       |
+|                    +-> bounded model branch N -> Event/Sink       |
 +------------------------------------------------+-----------------+
                                                  |
                                                  | AlarmInfo datagram
@@ -150,12 +149,12 @@ state.
 The execution key is:
 
 ```text
-stream_id | model_scenario_code | package_path
+stream_id
 ```
 
-This key deliberately prevents cross-device algorithm aggregation. A device
-failure, task stop, URL update, or package update must not restart unrelated
-devices.
+One task owns one worker, RTSP session, and VDEC group. This key prevents
+cross-device aggregation. A device failure, task stop, URL update, event-list
+change, or package update restarts only that stream worker.
 
 For each desired worker, the manager also stores the serialized `StreamConfig`
 as a signature. Reconciliation follows these rules:
@@ -166,10 +165,9 @@ as a signature. Reconciliation follows these rules:
 4. start only new workers;
 5. reload only workers selected by a model-update message.
 
-A platform task contains one stream and may contain several algorithms. If the
-algorithms use different scenario/package pairs, the current implementation
-creates one isolated worker per pair. They are still controlled by the single
-manager process.
+A platform task contains one stream and may contain several algorithms. The
+worker groups those algorithms into one or more asynchronous model branches;
+it never opens another RTSP session or VDEC group for an additional event.
 
 ## 7. VDEC Group Allocation
 
@@ -197,8 +195,10 @@ Worker startup:
 3. read the package root JSON;
 4. locate the package-declared `.model`;
 5. read preprocessing, classes, thresholds, and output scales;
-6. generate Pipeline YAML files;
-7. start the worker graph.
+6. group models using `config/ModelGroups.yaml` and model-content fingerprints;
+7. generate branch-specific preprocess, infer, postprocess, tracker, and event
+   configuration;
+8. start the single-decode, multi-model graph.
 
 The package is the only source of model data. There is no board-side model
 fallback or hard-coded replacement.
@@ -223,22 +223,35 @@ The current DSP `ES_AK_DSP_DetectionOut` contract is:
 
 The old six-output box/class split is not supported by this graph.
 
+### 8.1 Model groups
+
+`config/ModelGroups.yaml` maps scenarios to a model group and configures each
+group's queue depth and inference sampling interval. The current
+`general-object-detection` group contains area intrusion, area loitering,
+crowd gathering, people leave/running, and vehicle reverse/parking.
+
+A declared group creates one NPU context and fans its result out to every event
+rule in that group. Undeclared scenarios are grouped automatically by the
+decrypted `.model` content fingerprint. Historical board packages may opt out
+of byte identity with `require_identical_model: false` and select a stable
+`canonical_scenario`; fingerprint differences are always logged.
+
 ## 9. Generated Worker Configuration
 
 Each worker owns a directory under the manager runtime directory:
 
 ```text
-<runtime>/<scenario>_<stable-id>/
-├── model/
-├── labels.txt
-├── agent-config.pb
-├── EsAvDemux_1.yaml
+<runtime>/stream_<stream-id>_<stable-id>/
+├── model_1/ ... model_N/
+├── labels_1.txt ... labels_N.txt
+├── agent-config_1.pb ... agent-config_N.pb
+├── EsAvDemux.yaml
 ├── EsVdec.yaml
-├── EsPreProcess.yaml
-├── EsInfer.yaml
-├── EsPostProcess.yaml
-├── EsTrackerLite.yaml
-└── EsEvent.yaml
+├── EsPreProcess_1.yaml ... EsPreProcess_N.yaml
+├── EsInfer_1.yaml ... EsInfer_N.yaml
+├── EsPostProcess_1.yaml ... EsPostProcess_N.yaml
+├── EsTrackerLite_1.yaml ... EsTrackerLite_N.yaml
+└── EsEvent_1.yaml ... EsEvent_N.yaml
 ```
 
 The directory is removed and recreated only when that worker starts.
@@ -247,36 +260,42 @@ Important mappings:
 
 | Platform/package field | Worker configuration |
 | --- | --- |
-| `rtsp_url`, `stream_id` | `EsAvDemux_*.yaml` |
+| `rtsp_url`, `stream_id` | `EsAvDemux.yaml` |
 | model input size | VDEC scale and PreProcess output |
 | preprocess padding | PreProcess letterbox padding |
-| package `.model` | `EsInfer.yaml` |
-| class names | `labels.txt` |
-| threshold and output scales | `EsPostProcess.yaml` |
-| full stream algorithms | `agent-config.pb` |
+| package `.model` | `EsInfer_N.yaml` |
+| class names | `labels_N.txt` |
+| threshold and output scales | `EsPostProcess_N.yaml` |
+| model-group event list | `agent-config_N.pb` |
 | snapshot/record directories | Evidence service configuration |
 
-The current preprocessing sampling interval is one inference frame for every
-three decoded frames.
+Each model group has a bounded drop-oldest queue and an independently
+configurable sampling interval. A slow model loses frames on its own branch
+instead of blocking decode or faster models.
 
 ## 10. Worker Plugin Graph
 
-For each stream/scenario/package execution unit:
+For each stream worker:
 
 ```text
 EsAvDemux
   -> EsEvidenceRecorder
   -> EsVdec
   -> EsMux
-  -> EsQueue
-  -> EsPreProcess
-  -> EsInfer
-  -> EsQueue
-  -> EsPostProcess
-  -> EsTrackerLite
-  -> EsEvent
-  -> EsTestSink
+  -> EsFrameFork
+       ├-> Queue(drop-oldest) -> Pre/Infer/Post/Tracker/Event -> Sink
+       ├-> Queue(drop-oldest) -> Pre/Infer/Post/Tracker/Event -> Sink
+       └-> ...
 ```
+
+`EsFrameFork` shares only read-only decoded image FDs. Each branch owns
+independent frame/batch metadata, inference output, objects, tracker state, and
+event state. Reference counting keeps the source frame alive without copying
+full-resolution image data.
+
+VDEC exposes one original-resolution NV12 output. Every model branch performs
+its own resize and letterbox from that shared FD, so no extra VDEC-scaled
+output or VB pool is reserved for the first model.
 
 ### 10.1 EsAvDemux
 
@@ -285,9 +304,9 @@ timing metadata.
 
 ### 10.2 EsEvidenceRecorder
 
-Receives compressed packets before decode and maintains recording state. It
-creates event clips without opening a second RTSP session and without
-re-encoding the video.
+Receives compressed packets before decode, aligns detection metadata by media
+PTS, and injects media-agent-compatible MOSP `user_data_unregistered` SEI. It
+creates event clips without opening a second RTSP session or re-encoding.
 
 ### 10.3 EsVdec, EsPreProcess, EsInfer, EsPostProcess
 
@@ -324,6 +343,17 @@ Video evidence uses compressed packets from `EsAvDemux`:
 
 This path minimizes CPU, NPU, VENC, and memory-bandwidth cost.
 
+The video path deliberately does not burn overlays into decoded frames with
+`EsOsd`. That would mutate a frame shared by model branches and require
+continuous VENC output, adding VENC/VB and memory-bandwidth cost. MOSP SEI
+carries track ID, class, confidence, and normalized bounding boxes in the
+original compressed stream for the platform player to render.
+
+The recorder opens the final visible `.ts` path at trigger time and flushes
+each packet. The alarm therefore never references a hidden temporary file
+that appears only after recording completes; this removes the race that made
+area-intrusion clips only occasionally playable.
+
 ### 11.2 Snapshot
 
 The event element selects an original-resolution frame rather than the
@@ -331,8 +361,10 @@ The event element selects an original-resolution frame rather than the
 letterbox space before evidence is generated.
 
 The current `EvidenceService` maps NV12 and uses FFmpeg software JPEG encoding
-on an evidence path. It does not encode every frame, but alarm bursts can still
-create CPU and memory-bandwidth spikes.
+on an evidence path. It draws bounding boxes, valid track IDs (`#NA` when
+unmatched), class labels, and confidence on the copied YUV frame. It does not mutate the
+decoded frame shared by inference branches or encode every frame, but alarm
+bursts can still create CPU and memory-bandwidth spikes.
 
 An on-demand hardware JPEG worker remains a planned optimization.
 
