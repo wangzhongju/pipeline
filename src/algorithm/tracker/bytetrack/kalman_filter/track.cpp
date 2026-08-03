@@ -24,12 +24,17 @@ Track::Track(KMean& mean, KCovar& covariance, int track_id_, int n_init, int max
     this->hits_ = 1;
     this->age_ = 1;
     this->time_since_update_ = 0;
-    this->state_ = TrackState::Tentative;
+    this->n_init_ = n_init;
+    // The initiating detection is already the first hit.  In particular,
+    // n_init == 1 must make the track visible on the current frame instead
+    // of waiting for a second sampled inference frame.
+    this->state_ = this->hits_ >= this->n_init_
+        ? TrackState::Confirmed
+        : TrackState::Tentative;
 
     this->latest_detection_ = detection;
     this->lastest_bbox_tlwh = detection.tlwh;
 
-    this->n_init_ = n_init;
     this->max_age_ = max_age;
 
     this->locked_class_type_ = -1;

@@ -44,12 +44,14 @@ event_roi_mode_t roiMode(const RoiArea &roi) {
     return EVENT_ROI_MODE_UNKNOWN;
 }
 
-DetectionObject toProtoObject(const event_object_t &object) {
+DetectionObject toProtoObject(const event_object_t &object,
+                              bool alarmHighlight = false) {
     DetectionObject result;
     result.set_track_id(object.tracker_id > 0 ? object.tracker_id : 0);
     result.set_class_id(object.class_id >= 0 ? object.class_id : 0);
     result.set_class_name(object.class_name == nullptr ? "" : object.class_name);
     result.set_confidence(object.confidence);
+    result.set_bbox_style(alarmHighlight ? 1 : 0);
     Box *box = result.mutable_bbox();
     box->set_cx(object.x);
     box->set_cy(object.y);
@@ -230,6 +232,18 @@ app_ret EventElement::ProcessData(
             objects[index].width = box.width;
             objects[index].height = box.height;
         }
+        std::vector<DetectionObject> overlayObjects;
+        overlayObjects.reserve(objects.size());
+        for (const auto &object : objects) {
+            overlayObjects.push_back(toProtoObject(object));
+        }
+        // Preprocessing samples one frame out of every three. The unsampled
+        // frames carry no objects and must not erase the latest real inference
+        // result; the evidence recorder interpolates between real samples.
+        if (!overlayObjects.empty()) {
+            pipeline::evidence::EvidenceService::instance().updateDetections(
+                streamId, static_cast<int64_t>(frame->index), overlayObjects);
+        }
 
         std::vector<AlgorithmConfig> algorithms;
         std::vector<std::vector<event_point2d_t>> pointStorage;
@@ -291,7 +305,9 @@ app_ret EventElement::ProcessData(
             event_request_t request{};
             request.event_name =
                 algorithms.back().model_scenario_code().c_str();
-            request.has_roi_override = rois.empty() ? 0 : 1;
+            // Platform configuration is authoritative. An empty ROI list means
+            // "full frame", not "fall back to the sample ROIs in Event.yaml".
+            request.has_roi_override = 1;
             request.roi_areas = rois.empty() ? nullptr : rois.data();
             request.roi_area_count = rois.size();
             request.confidence_threshold = algorithms.back().threshold();
@@ -344,7 +360,8 @@ app_ret EventElement::ProcessData(
             targets.reserve(alarm.object_count);
             for (size_t objectIndex = 0;
                  objectIndex < alarm.object_count; ++objectIndex) {
-                targets.push_back(toProtoObject(alarm.objects[objectIndex]));
+                targets.push_back(
+                    toProtoObject(alarm.objects[objectIndex], true));
             }
             std::string snapshotName;
             CImage *snapshotImage = nullptr;
@@ -362,7 +379,7 @@ app_ret EventElement::ProcessData(
             }
             const std::string recordName =
                 pipeline::evidence::EvidenceService::instance().triggerRecording(
-                    streamId);
+                    streamId, targets);
             const bool queued = sendAlarm(pipeline::agent::buildAlarmInfo(
                 streamId, *algorithm, targets,
                 alarm.description == nullptr ? "" : alarm.description,

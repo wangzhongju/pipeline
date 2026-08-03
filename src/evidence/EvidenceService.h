@@ -30,6 +30,7 @@ struct EncodedVideoPacket {
     int64_t duration = 0;
     int time_base_num = 1;
     int time_base_den = 1000;
+    int64_t frame_index = 0;
     bool key_frame = false;
 };
 
@@ -38,9 +39,14 @@ public:
     static EvidenceService& instance();
 
     void applyConfig(const AgentConfig& config);
+    void updateDetections(const std::string& stream_id,
+                          int64_t frame_index,
+                          const std::vector<DetectionObject>& objects);
     bool appendPacket(const std::string& stream_id,
                       const EncodedVideoPacket& packet);
-    std::string triggerRecording(const std::string& stream_id);
+    std::string triggerRecording(
+        const std::string& stream_id,
+        const std::vector<DetectionObject>& alarm_objects);
     std::string saveSnapshot(const std::string& stream_id,
                              const VIDEO_FRAME_INFO_S& frame,
                              const std::vector<DetectionObject>& objects,
