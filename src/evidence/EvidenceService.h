@@ -30,7 +30,7 @@ struct EncodedVideoPacket {
     int64_t duration = 0;
     int time_base_num = 1;
     int time_base_den = 1000;
-    int64_t frame_index = 0;
+    int64_t timestamp_ms = 0;
     bool key_frame = false;
 };
 
@@ -40,7 +40,7 @@ public:
 
     void applyConfig(const AgentConfig& config);
     void updateDetections(const std::string& stream_id,
-                          int64_t frame_index,
+                          int64_t timestamp_ms,
                           const std::vector<DetectionObject>& objects);
     bool appendPacket(const std::string& stream_id,
                       const EncodedVideoPacket& packet);

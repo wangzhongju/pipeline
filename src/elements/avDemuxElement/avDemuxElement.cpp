@@ -1,6 +1,7 @@
 #define PL_LOG_ID PL_LOG_AVDEMUX
 #include "avDemuxElement.h"
 
+#include <chrono>
 #include <sys/prctl.h>
 #include <yaml-cpp/yaml.h>
 
@@ -9,9 +10,63 @@ extern "C" {
 #include "libavcodec/avcodec.h"
 #include "libavcodec/bsf.h"
 #include "libavformat/avformat.h"
+#include "libavutil/mathematics.h"
 #include "libavutil/opt.h"
 }
 using namespace std;
+
+static int64_t systemNowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
+
+static int64_t normalizedVideoTimestampMs(
+    const AVPacket *packet, AVRational timeBase,
+    int64_t &firstSourceTimestampMs, int64_t &systemTimestampBaseMs,
+    int64_t &lastTimestampMs) {
+    const int64_t sourceTimestamp =
+        packet != nullptr && packet->pts != AV_NOPTS_VALUE
+            ? packet->pts
+            : (packet != nullptr ? packet->dts : AV_NOPTS_VALUE);
+
+    int64_t timestampMs = 0;
+    if (sourceTimestamp != AV_NOPTS_VALUE &&
+        timeBase.num > 0 && timeBase.den > 0) {
+        const int64_t sourceTimestampMs = av_rescale_q(
+            sourceTimestamp, timeBase, AVRational{1, 1000});
+        if (firstSourceTimestampMs == AV_NOPTS_VALUE) {
+            firstSourceTimestampMs = sourceTimestampMs;
+            systemTimestampBaseMs = systemNowMs();
+        }
+        timestampMs =
+            systemTimestampBaseMs +
+            (sourceTimestampMs - firstSourceTimestampMs);
+        if (timestampMs <= lastTimestampMs) {
+            // A live source may restart its RTP/PTS clock without reconnecting.
+            // Rebase the complete source timeline here so encoded packets and
+            // decoded frames remain strictly monotonic and keep the same
+            // canonical timestamp for evidence alignment.
+            const int64_t rebase = lastTimestampMs + 1 - timestampMs;
+            systemTimestampBaseMs += rebase;
+            timestampMs += rebase;
+        }
+    } else {
+        // Some live streams do not provide PTS/DTS. Assign the timestamp once
+        // at the demux boundary and propagate the same value through VDEC,
+        // inference and evidence recording.
+        timestampMs = systemNowMs();
+        if (timestampMs <= lastTimestampMs) {
+            timestampMs = lastTimestampMs + 1;
+        }
+    }
+
+    if (timestampMs <= 0) {
+        timestampMs = std::max<int64_t>(systemNowMs(), lastTimestampMs + 1);
+    }
+    lastTimestampMs = std::max(lastTimestampMs, timestampMs);
+    return timestampMs;
+}
 
 const int sampling_frequencies[] = {
     96000,  // 0x0
@@ -338,14 +393,12 @@ static ES_VOID* plStartSendStream(ES_VOID* pArgs) {
     }
 
     int64_t firstAudioPts = 0;
-    int64_t firstVideoPts = 0;
+    int64_t firstVideoSourceTimestampMs = AV_NOPTS_VALUE;
+    int64_t videoSystemTimestampBaseMs = 0;
+    int64_t lastVideoTimestampMs = 0;
     double audioTimebase = 0;
-    double videoTimebase = 0;
     if (audiostreamidx > -1) {
         audioTimebase = av_q2d(pFmtCtx->streams[audiostreamidx]->time_base) * 1000;
-    }
-    if (videostreamidx > -1) {
-        videoTimebase = av_q2d(pFmtCtx->streams[videostreamidx]->time_base) * 1000;
     }
 
     int leftFrame = -1;
@@ -432,10 +485,6 @@ static ES_VOID* plStartSendStream(ES_VOID* pArgs) {
 
             break;
         } else if (pkt->stream_index == videostreamidx) {
-            if (videoSendCount == 0) {
-                firstVideoPts = pkt->pts;
-            }
-
             if (bsf_ctx) {
                 /**(5) 将输入packet提交到过滤器处理*/
                 if (av_bsf_send_packet(bsf_ctx, pkt) < 0) {
@@ -461,7 +510,12 @@ static ES_VOID* plStartSendStream(ES_VOID* pArgs) {
             VDEC_STREAM_S* videoStream = (VDEC_STREAM_S*)malloc(sizeof(VDEC_STREAM_S));
             memset(videoStream, 0, sizeof(VDEC_STREAM_S));
 
-            videoStream->PTS = (pkt->pts - firstVideoPts) * videoTimebase;
+            const AVRational videoTimeBase =
+                pFmtCtx->streams[videostreamidx]->time_base;
+            const int64_t timestampMs = normalizedVideoTimestampMs(
+                pkt, videoTimeBase, firstVideoSourceTimestampMs,
+                videoSystemTimestampBaseMs, lastVideoTimestampMs);
+            videoStream->PTS = static_cast<ES_U64>(timestampMs);
             videoStream->pAddr = pkt->data;
             videoStream->len = pkt->size;
             videoStream->bEndOfFrame = ES_TRUE;
@@ -477,6 +531,7 @@ static ES_VOID* plStartSendStream(ES_VOID* pArgs) {
             videoPacketMeta->demuxDuration = pkt->duration;
             videoPacketMeta->timeBaseNum = pFmtCtx->streams[videostreamidx]->time_base.num;
             videoPacketMeta->timeBaseDen = pFmtCtx->streams[videostreamidx]->time_base.den;
+            videoPacketMeta->timestampMs = timestampMs;
             videoPacketMeta->keyFrame = (pkt->flags & AV_PKT_FLAG_KEY) != 0;
             videoPacketMeta->videoPkt = videoStream;
             videoPacketMeta->padIndex = pAvDemuxElement->mPadIndex;

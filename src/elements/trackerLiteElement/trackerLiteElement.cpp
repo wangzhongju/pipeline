@@ -115,9 +115,10 @@ app_ret TrackerLiteElement::ProcessData(
         tracker_frame_desc_t descriptor{};
         descriptor.width = width;
         descriptor.height = height;
-        descriptor.timestamp_ms =
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
+        descriptor.timestamp_ms = frame->pts > 0
+            ? static_cast<int64_t>(frame->pts)
+            : std::chrono::duration_cast<std::chrono::milliseconds>(
+                  std::chrono::system_clock::now().time_since_epoch()).count();
         if (tracker_process(tracker, &descriptor,
                             detections.empty() ? nullptr : detections.data(),
                             detections.size(),

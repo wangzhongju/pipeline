@@ -237,12 +237,15 @@ app_ret EventElement::ProcessData(
         for (const auto &object : objects) {
             overlayObjects.push_back(toProtoObject(object));
         }
+        const int64_t frameTimestampMs =
+            frame->pts > 0 ? static_cast<int64_t>(frame->pts) : nowMs();
         // Preprocessing samples one frame out of every three. The unsampled
         // frames carry no objects and must not erase the latest real inference
-        // result; the evidence recorder interpolates between real samples.
+        // result; the evidence recorder interpolates between real samples by
+        // their source timestamps.
         if (!overlayObjects.empty()) {
             pipeline::evidence::EvidenceService::instance().updateDetections(
-                streamId, static_cast<int64_t>(frame->index), overlayObjects);
+                streamId, frameTimestampMs, overlayObjects);
         }
 
         std::vector<AlgorithmConfig> algorithms;
@@ -320,7 +323,7 @@ app_ret EventElement::ProcessData(
 
         event_frame_desc_t descriptor{};
         descriptor.camera_id = streamId.c_str();
-        descriptor.timestamp_ms = nowMs();
+        descriptor.timestamp_ms = frameTimestampMs;
 
         const event_alarm_t *alarms = nullptr;
         size_t alarmCount = 0;

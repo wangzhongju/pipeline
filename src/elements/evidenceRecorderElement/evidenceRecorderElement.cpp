@@ -28,7 +28,7 @@ app_ret EvidenceRecorderElement::ProcessData(
     packet.duration = meta->demuxDuration;
     packet.time_base_num = meta->timeBaseNum;
     packet.time_base_den = meta->timeBaseDen;
-    packet.frame_index = meta->index;
+    packet.timestamp_ms = meta->timestampMs;
     packet.key_frame = meta->keyFrame;
     pipeline::evidence::EvidenceService::instance().appendPacket(
         meta->streamId, packet);

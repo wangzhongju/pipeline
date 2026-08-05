@@ -136,6 +136,7 @@ class CVideoPacketMeta : public CBaseMeta {
     int64_t demuxDuration = 0;  // packet duration in the original demuxer time base
     int timeBaseNum = 0;
     int timeBaseDen = 1;
+    int64_t timestampMs = 0;    // source timestamp normalized to milliseconds
     bool keyFrame = false;
 
    private:

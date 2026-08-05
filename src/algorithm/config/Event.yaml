@@ -56,6 +56,22 @@ event_detectors:
         english: "area-intrusion"
         chinese: "车辆闯入"
 
+  area-loitering:
+    enabled: true
+    event_type: "target_detection"
+    event_interval_ms: 10000
+    target_labels: ["person"]
+    confidence_threshold: 0.5
+    confidence_grace_ms: 500
+    target_required_time: 10.0
+    target_required_frame: 20
+    max_search_time: 12.0
+    roi_areas: []
+    label_descriptions:
+      person:
+        english: "area-loitering"
+        chinese: "区域徘徊"
+
   fire-detection:
     enabled: true
     event_type: "target_detection"

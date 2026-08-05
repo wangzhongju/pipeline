@@ -36,8 +36,8 @@ constexpr int kDefaultRecordSeconds = 10;
 constexpr uint8_t kBoxY = 135;
 constexpr uint8_t kBoxU = 112;
 constexpr uint8_t kBoxV = 194;
-constexpr int kOverlayHoldFrames = 6;
-constexpr int kMaxAlignmentDelayFrames = 250;
+constexpr int64_t kOverlayHoldMs = 250;
+constexpr int64_t kMaxAlignmentDelayMs = 1000;
 constexpr uint16_t kSeiItemDurationMs = 250;
 constexpr std::array<uint8_t, 16> kSeiUuid{{
     0x4D, 0x45, 0x54, 0x41, 0x44, 0x41, 0x54, 0x41,
@@ -47,6 +47,12 @@ constexpr std::array<uint8_t, 16> kSeiUuid{{
 int64_t steadyNowMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+int64_t systemNowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
 }
 
 std::string fileTimestamp() {
@@ -268,27 +274,27 @@ std::string overlayKey(const DetectionObject& object) {
 }
 
 std::vector<DetectionObject> interpolateDetections(
-    int64_t packet_frame_index, int64_t previous_frame_index,
+    int64_t packet_timestamp_ms, int64_t previous_timestamp_ms,
     const std::vector<DetectionObject>& previous_objects,
-    int64_t next_frame_index,
+    int64_t next_timestamp_ms,
     const std::vector<DetectionObject>& next_objects) {
-    if (packet_frame_index < previous_frame_index) {
+    if (packet_timestamp_ms < previous_timestamp_ms) {
         return {};
     }
-    if (next_frame_index <= previous_frame_index ||
-        packet_frame_index >= next_frame_index) {
+    if (next_timestamp_ms <= previous_timestamp_ms ||
+        packet_timestamp_ms >= next_timestamp_ms) {
         return next_objects;
     }
-    if (next_frame_index - previous_frame_index > kOverlayHoldFrames) {
-        return packet_frame_index - previous_frame_index <=
-                       kOverlayHoldFrames
+    if (next_timestamp_ms - previous_timestamp_ms > kOverlayHoldMs) {
+        return packet_timestamp_ms - previous_timestamp_ms <=
+                       kOverlayHoldMs
                    ? previous_objects
                    : std::vector<DetectionObject>{};
     }
 
     const float alpha = std::clamp(
-        static_cast<float>(packet_frame_index - previous_frame_index) /
-            static_cast<float>(next_frame_index - previous_frame_index),
+        static_cast<float>(packet_timestamp_ms - previous_timestamp_ms) /
+            static_cast<float>(next_timestamp_ms - previous_timestamp_ms),
         0.0F, 1.0F);
     std::vector<DetectionObject> result;
     result.reserve(previous_objects.size() + next_objects.size());
@@ -302,8 +308,8 @@ std::vector<DetectionObject> interpolateDetections(
             });
         if (next == next_objects.end() || !previous.has_bbox() ||
             !next->has_bbox()) {
-            if (packet_frame_index - previous_frame_index <=
-                kOverlayHoldFrames) {
+            if (packet_timestamp_ms - previous_timestamp_ms <=
+                kOverlayHoldMs) {
                 result.push_back(previous);
             }
             continue;
@@ -618,6 +624,7 @@ public:
             clearPending();
             previous_detection_.reset();
             next_timestamp_ = AV_NOPTS_VALUE;
+            last_mux_dts_ = AV_NOPTS_VALUE;
             last_duration_ = 0;
         }
         stream_id_ = std::move(stream_id);
@@ -662,17 +669,28 @@ public:
             raw->dts = raw->pts;
         }
         if (raw->pts == AV_NOPTS_VALUE && raw->dts == AV_NOPTS_VALUE) {
-            raw->pts = next_timestamp_ == AV_NOPTS_VALUE
-                           ? 0 : next_timestamp_;
+            const int64_t fallback_timestamp_ms =
+                source.timestamp_ms > 0 ? source.timestamp_ms : systemNowMs();
+            raw->pts = av_rescale_q(
+                fallback_timestamp_ms, AVRational{1, 1000}, time_base_);
             raw->dts = raw->pts;
         }
         next_timestamp_ =
             std::max(raw->pts, raw->dts) + std::max<int64_t>(1, raw->duration);
 
-        const int64_t frame_index = std::max<int64_t>(0, source.frame_index);
-        pending_.push_back(PendingPacket{raw, frame_index});
+        int64_t timestamp_ms = source.timestamp_ms;
+        if (timestamp_ms <= 0) {
+            const int64_t packet_timestamp =
+                raw->pts != AV_NOPTS_VALUE ? raw->pts : raw->dts;
+            timestamp_ms = packet_timestamp != AV_NOPTS_VALUE
+                               ? av_rescale_q(
+                                     packet_timestamp, time_base_,
+                                     AVRational{1, 1000})
+                               : systemNowMs();
+        }
+        pending_.push_back(PendingPacket{raw, timestamp_ms});
 
-        bool ok = flushOverdue(frame_index);
+        bool ok = flushOverdue(timestamp_ms);
         if (ok) {
             ok = closeExpired();
         }
@@ -680,34 +698,34 @@ public:
     }
 
     bool updateDetections(
-        int64_t frame_index, const std::vector<DetectionObject>& objects) {
-        if (frame_index < 0) {
+        int64_t timestamp_ms, const std::vector<DetectionObject>& objects) {
+        if (timestamp_ms <= 0) {
             return false;
         }
         bool ok = true;
-        DetectionSample next{frame_index, objects};
+        DetectionSample next{timestamp_ms, objects};
         if (!previous_detection_) {
             while (!pending_.empty() &&
-                   pending_.front().frame_index < next.frame_index) {
+                   pending_.front().timestamp_ms < next.timestamp_ms) {
                 ok = commitPending({}) && ok;
             }
             if (!pending_.empty() &&
-                pending_.front().frame_index == next.frame_index) {
+                pending_.front().timestamp_ms == next.timestamp_ms) {
                 ok = commitPending(next.objects) && ok;
             }
             previous_detection_ = std::move(next);
-        } else if (next.frame_index > previous_detection_->frame_index) {
+        } else if (next.timestamp_ms > previous_detection_->timestamp_ms) {
             while (!pending_.empty() &&
-                   pending_.front().frame_index <= next.frame_index) {
+                   pending_.front().timestamp_ms <= next.timestamp_ms) {
                 const auto interpolated = interpolateDetections(
-                    pending_.front().frame_index,
-                    previous_detection_->frame_index,
+                    pending_.front().timestamp_ms,
+                    previous_detection_->timestamp_ms,
                     previous_detection_->objects,
-                    next.frame_index, next.objects);
+                    next.timestamp_ms, next.objects);
                 ok = commitPending(interpolated) && ok;
             }
             previous_detection_ = std::move(next);
-        } else if (next.frame_index == previous_detection_->frame_index) {
+        } else if (next.timestamp_ms == previous_detection_->timestamp_ms) {
             previous_detection_->objects = std::move(next.objects);
         }
         return closeExpired() && ok;
@@ -756,6 +774,7 @@ public:
             return {};
         }
         start_timestamp_ = AV_NOPTS_VALUE;
+        last_mux_dts_ = AV_NOPTS_VALUE;
         for (const auto& cached : cache_) {
             if (!cached.packet || !write(cached.packet)) {
                 close();
@@ -789,6 +808,7 @@ public:
         }
         deadline_ms_ = 0;
         start_timestamp_ = AV_NOPTS_VALUE;
+        last_mux_dts_ = AV_NOPTS_VALUE;
         file_name_.clear();
         temp_path_.clear();
     }
@@ -823,23 +843,23 @@ private:
     }
 
     std::vector<DetectionObject> tailDetections(
-        int64_t frame_index) const {
+        int64_t timestamp_ms) const {
         if (!previous_detection_ ||
-            frame_index < previous_detection_->frame_index ||
-            frame_index - previous_detection_->frame_index >
-                kOverlayHoldFrames) {
+            timestamp_ms < previous_detection_->timestamp_ms ||
+            timestamp_ms - previous_detection_->timestamp_ms >
+                kOverlayHoldMs) {
             return {};
         }
         return previous_detection_->objects;
     }
 
-    bool flushOverdue(int64_t newest_frame_index) {
+    bool flushOverdue(int64_t newest_timestamp_ms) {
         bool ok = true;
         while (!pending_.empty() &&
-               newest_frame_index - pending_.front().frame_index >
-                   kMaxAlignmentDelayFrames) {
+               newest_timestamp_ms - pending_.front().timestamp_ms >
+                   kMaxAlignmentDelayMs) {
             ok = commitPending(
-                     tailDetections(pending_.front().frame_index)) && ok;
+                     tailDetections(pending_.front().timestamp_ms)) && ok;
         }
         return ok;
     }
@@ -848,7 +868,7 @@ private:
         bool ok = true;
         while (!pending_.empty()) {
             ok = commitPending(
-                     tailDetections(pending_.front().frame_index)) && ok;
+                     tailDetections(pending_.front().timestamp_ms)) && ok;
         }
         return ok;
     }
@@ -872,6 +892,35 @@ private:
                 packet->dts = std::max<int64_t>(0, packet->dts - start_timestamp_);
             }
         }
+        if (packet->dts == AV_NOPTS_VALUE) {
+            packet->dts = packet->pts;
+        }
+        if (packet->pts == AV_NOPTS_VALUE) {
+            packet->pts = packet->dts;
+        }
+        if (packet->dts == AV_NOPTS_VALUE) {
+            packet->dts = last_mux_dts_ == AV_NOPTS_VALUE
+                              ? 0
+                              : last_mux_dts_ +
+                                    std::max<int64_t>(1, packet->duration);
+            packet->pts = packet->dts;
+        }
+        if (last_mux_dts_ != AV_NOPTS_VALUE &&
+            packet->dts <= last_mux_dts_) {
+            // Live RTSP sources can reset PTS/DTS to zero after reconnecting
+            // while an evidence clip is still open. Keep the mux timeline
+            // continuous without changing the canonical timestamp used to
+            // align detections with decoded frames.
+            const int64_t shift =
+                last_mux_dts_ + std::max<int64_t>(1, packet->duration) -
+                packet->dts;
+            packet->dts += shift;
+            packet->pts += shift;
+        }
+        if (packet->pts < packet->dts) {
+            packet->pts = packet->dts;
+        }
+        last_mux_dts_ = packet->dts;
         packet->stream_index = stream_->index;
         packet->pos = -1;
         const int result = av_interleaved_write_frame(format_, packet);
@@ -913,11 +962,11 @@ private:
 
     struct PendingPacket {
         AVPacket* packet = nullptr;
-        int64_t frame_index = 0;
+        int64_t timestamp_ms = 0;
     };
 
     struct DetectionSample {
-        int64_t frame_index = 0;
+        int64_t timestamp_ms = 0;
         std::vector<DetectionObject> objects;
     };
 
@@ -929,6 +978,7 @@ private:
     int64_t deadline_ms_ = 0;
     int64_t start_timestamp_ = AV_NOPTS_VALUE;
     int64_t next_timestamp_ = AV_NOPTS_VALUE;
+    int64_t last_mux_dts_ = AV_NOPTS_VALUE;
     int64_t last_duration_ = 0;
     AVCodecID codec_id_ = AV_CODEC_ID_NONE;
     int width_ = 0;
@@ -980,14 +1030,15 @@ void EvidenceService::applyConfig(const AgentConfig& config) {
 
 void EvidenceService::updateDetections(
     const std::string& stream_id,
-    int64_t frame_index,
+    int64_t timestamp_ms,
     const std::vector<DetectionObject>& objects) {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto it = recorders_.find(stream_id);
     if (it != recorders_.end() &&
-        !it->second->updateDetections(frame_index, objects)) {
-        LOG_ERROR("[Evidence] detection alignment failed stream={} frame={}",
-                  stream_id, frame_index);
+        !it->second->updateDetections(timestamp_ms, objects)) {
+        LOG_ERROR(
+            "[Evidence] detection alignment failed stream={} timestamp_ms={}",
+            stream_id, timestamp_ms);
     }
 }
 
