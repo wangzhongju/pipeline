@@ -93,9 +93,10 @@ build-riscv64/install/
 主要安装文件：
 
 ```text
-build-riscv64/install/opt/demo/pipeline/bin/
-build-riscv64/install/usr/local/lib/
-build-riscv64/install/opt/demo/pipeline/config/
+build-riscv64/install/bin/
+build-riscv64/install/lib/
+build-riscv64/install/config/
+build-riscv64/install/case/platform/
 ```
 
 ## 4. 平台模式快速启动

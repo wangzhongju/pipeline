@@ -410,15 +410,49 @@ private:
             ? postprocess.value(
                   "class_num", classes.value("classes_nums", 1))
             : root.value("num_class", 1);
-        const auto labels = nested_schema
+        const auto configured_labels = nested_schema
             ? classes.value(
                   "class_names", nlohmann::json::array({"object"}))
             : root.value(
                   "class_names", nlohmann::json::array({"object"}));
 
+        std::vector<std::string> labels(
+            static_cast<size_t>(std::max(class_count, 0)));
+        if (configured_labels.is_array()) {
+            const size_t count = std::min(labels.size(), configured_labels.size());
+            for (size_t index = 0; index < count; ++index) {
+                if (configured_labels[index].is_string()) {
+                    labels[index] = configured_labels[index].get<std::string>();
+                }
+            }
+        } else if (configured_labels.is_object()) {
+            for (auto label = configured_labels.begin();
+                 label != configured_labels.end(); ++label) {
+                size_t consumed = 0;
+                size_t class_id = 0;
+                try {
+                    class_id = std::stoull(label.key(), &consumed);
+                } catch (const std::exception&) {
+                    throw std::runtime_error(
+                        "class_names contains invalid class id: " + label.key());
+                }
+                if (consumed != label.key().size() || class_id >= labels.size() ||
+                    !label.value().is_string()) {
+                    throw std::runtime_error(
+                        "class_names contains invalid entry for class id: " +
+                        label.key());
+                }
+                labels[class_id] = label.value().get<std::string>();
+            }
+        } else {
+            throw std::runtime_error("class_names must be an object or array");
+        }
+
         std::ostringstream label_text;
-        for (const auto& label : labels) {
-            label_text << label.get<std::string>() << "\n";
+        for (size_t class_id = 0; class_id < labels.size(); ++class_id) {
+            if (!labels[class_id].empty()) {
+                label_text << class_id << ":" << labels[class_id] << ",\n";
+            }
         }
         writeText(group_dir / "labels.txt", label_text.str());
 

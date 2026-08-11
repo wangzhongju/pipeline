@@ -10,10 +10,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(ESSDKPL_VERISION 1.0)
 set(ESSDKPL_SOVERISION 1.0)
 
-set(PIPELINE_LIB_ROOT /usr/local/lib CACHE PATH "Pipeline target library directory")
-set(PIPELINE_EXEC_ROOT /opt/demo/pipeline/bin CACHE PATH "Pipeline target executable directory")
+set(PIPELINE_LIB_ROOT /lib CACHE PATH "Pipeline deploy library directory")
+set(PIPELINE_EXEC_ROOT /bin CACHE PATH "Pipeline deploy executable directory")
 set(ESSDKPL_LIB_INSTALL_PATH "${CMAKE_INSTALL_PREFIX}${PIPELINE_LIB_ROOT}")
 set(ESSDKPL_EXEC_INSTALL_PATH "${CMAKE_INSTALL_PREFIX}${PIPELINE_EXEC_ROOT}")
+set(ESSDKPL_CONFIG_INSTALL_PATH "${CMAKE_INSTALL_PREFIX}/config")
 
 set(PIPELINE_SYSROOT_PREFIX "")
 if(CMAKE_SYSROOT)
@@ -71,3 +72,16 @@ add_subdirectory(evidence)
 add_subdirectory(elements)
 add_subdirectory(pl_launch)
 add_subdirectory(agent)
+
+# Install a directly deployable platform-mode tree.  The launchers resolve
+# bin/, lib/, and config/ relative to the copied install root.
+install(PROGRAMS
+  ${CMAKE_CURRENT_SOURCE_DIR}/../case/platform/launch_pipeline_agent.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/../case/platform/run_real_platform.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/../case/platform/run_mock_platform_e2e.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/../case/platform/mock_platform.py
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/case/platform")
+install(FILES
+  ${CMAKE_CURRENT_SOURCE_DIR}/../case/platform/README.md
+  ${CMAKE_CURRENT_SOURCE_DIR}/../case/platform/run.md
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/case/platform")

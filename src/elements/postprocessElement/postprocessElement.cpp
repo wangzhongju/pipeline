@@ -6,6 +6,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 
@@ -72,38 +73,46 @@ void getClassifyGoldenData(std::string filePath, std::vector<classifyGoldData> &
 int PostprocessElement::parseLabelsFile(const std::string &labelsFilePath) {
     app_debug("%s-%d: %s\n", __func__, __LINE__, "start parseLabelsFile");
     std::ifstream labels_file(labelsFilePath);
-    std::string delim{':'};
-    std::string strlim{','};
     if (!labels_file.is_open()) {
         app_error("%s-%d: %s\n", __func__, __LINE__, "labels file open error");
         return -1;
     }
-    while (labels_file.good() && !labels_file.eof()) {
-        std::string line, word;
-
-        std::vector<std::string> l;
-        size_t pos = 0, oldpos = 0;
-        int index = 0;
-
-        std::getline(labels_file, line, '\n');
-        if (line.empty()) continue;
-
-        while ((pos = line.find(delim, oldpos)) != std::string::npos) {
-            word = line.substr(oldpos, pos - oldpos);
-            l.push_back(word);
-            oldpos = pos + delim.length();
-            index = std::stoi(word.c_str());
+    m_postLabels.clear();
+    size_t sequential_index = 0;
+    std::string line;
+    while (std::getline(labels_file, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
         }
-        size_t pos2 = 0;
-        if ((pos2 = line.find(strlim, oldpos)) != std::string::npos) {
-            word = line.substr(oldpos, pos2 - oldpos);
-            l.push_back(word);
-            oldpos = pos2 + delim.length();
-            m_postLabels.push_back(word);
-        } else {
-            l.push_back(line.substr(oldpos));
-            m_postLabels.push_back(std::string(line.substr(oldpos)));
+
+        size_t class_id = sequential_index;
+        std::string label = line;
+        const size_t colon = line.find(':');
+        if (colon != std::string::npos) {
+            const std::string id_text = line.substr(0, colon);
+            if (!id_text.empty() &&
+                std::all_of(id_text.begin(), id_text.end(), [](unsigned char ch) {
+                    return std::isdigit(ch) != 0;
+                })) {
+                class_id = std::stoull(id_text);
+                label = line.substr(colon + 1);
+            }
         }
+        const size_t comma = label.find(',');
+        if (comma != std::string::npos) {
+            label.resize(comma);
+        }
+        while (!label.empty() && std::isspace(static_cast<unsigned char>(label.front()))) {
+            label.erase(label.begin());
+        }
+        while (!label.empty() && std::isspace(static_cast<unsigned char>(label.back()))) {
+            label.pop_back();
+        }
+        if (m_postLabels.size() <= class_id) {
+            m_postLabels.resize(class_id + 1);
+        }
+        m_postLabels[class_id] = label;
+        sequential_index = std::max(sequential_index + 1, class_id + 1);
     }
 
     if (labels_file.bad()) {
@@ -960,6 +969,11 @@ app_ret PostprocessElement::detectionAttachBatchMeta(CInferOutputMeta *inferOutp
             iOutputSize = outputVec[batch].size();
             for (int iOutputIdx = 0; iOutputIdx < iOutputSize; iOutputIdx++) {
                 DetectionOutput tempOutput = outputVec[batch][iOutputIdx];
+                const int class_id = static_cast<int>(tempOutput.classID);
+                if (class_id < 0 || class_id >= static_cast<int>(m_postLabels.size()) ||
+                    m_postLabels[class_id].empty()) {
+                    continue;
+                }
 
                 if (tempOutput.batchID < iFrameSize) {
                     CFrameMeta *oriFrameMeta = inferOutputMeta->parentFrameMeta[tempOutput.batchID];
@@ -973,7 +987,7 @@ app_ret PostprocessElement::detectionAttachBatchMeta(CInferOutputMeta *inferOutp
 
                     CObjectMeta *objMeta = ometaPool->allocate();
                     objMeta->pool = ometaPool;
-                    objMeta->classId = (int)tempOutput.classID;
+                    objMeta->classId = class_id;
                     objMeta->detectorConfidence = (float)tempOutput.score;
                     objMeta->parentFrameMeta = oriFrameMeta;
                     objMeta->objType = PL_OBJ_YOLO;
@@ -1074,12 +1088,17 @@ app_ret PostprocessElement::detectionAttachBatchMeta(CInferOutputMeta *inferOutp
             iOutputSize = outputVec[batch].size();
             for (int iOutputIdx = 0; iOutputIdx < iOutputSize; iOutputIdx++) {
                 DetectionOutput tempOutput = outputVec[batch][iOutputIdx];
+                const int class_id = static_cast<int>(tempOutput.classID);
+                if (class_id < 0 || class_id >= static_cast<int>(m_postLabels.size()) ||
+                    m_postLabels[class_id].empty()) {
+                    continue;
+                }
                 if (tempOutput.batchID < iparentObjSize) {
                     CFrameMeta *oriFrameMeta = inferOutputMeta->parentObjMeta[tempOutput.batchID]->parentFrameMeta;
 
                     CObjectMeta *objMeta = ometaPool->allocate();
                     objMeta->pool = ometaPool;
-                    objMeta->classId = (int)tempOutput.classID;
+                    objMeta->classId = class_id;
                     objMeta->detectorConfidence = (float)tempOutput.score;
                     objMeta->parentFrameMeta = oriFrameMeta;
                     objMeta->objType = PL_OBJ_YOLO;
